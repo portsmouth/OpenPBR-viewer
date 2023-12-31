@@ -1,0 +1,167 @@
+{
+  "accessors": [
+    {
+      "name": "standard_shader_ball_scene:grid standard_shader_ball_scene:ground standard_shader_ball_scene:standard_shader_ball_scene_1_0_positions",
+      "componentType": 5126,
+      "count": 6,
+      "min": [
+        -46.75,
+        0,
+        -49.70000076293945
+      ],
+      "max": [
+        53.25,
+        0,
+        50.29999923706055
+      ],
+      "type": "VEC3",
+      "bufferView": 0,
+      "byteOffset": 0
+    },
+    {
+      "name": "standard_shader_ball_scene:grid standard_shader_ball_scene:ground standard_shader_ball_scene:standard_shader_ball_scene_1_0_normals",
+      "componentType": 5126,
+      "count": 6,
+      "min": [
+        0,
+        1,
+        0
+      ],
+      "max": [
+        0,
+        1,
+        0
+      ],
+      "type": "VEC3",
+      "bufferView": 1,
+      "byteOffset": 0
+    },
+    {
+      "name": "standard_shader_ball_scene:grid standard_shader_ball_scene:ground standard_shader_ball_scene:standard_shader_ball_scene_1_0_texcoords",
+      "componentType": 5126,
+      "count": 6,
+      "min": [
+        0,
+        1
+      ],
+      "max": [
+        1,
+        2
+      ],
+      "type": "VEC2",
+      "bufferView": 2,
+      "byteOffset": 0
+    },
+    {
+      "name": "standard_shader_ball_scene:grid standard_shader_ball_scene:ground standard_shader_ball_scene:standard_shader_ball_scene_1_0_indices",
+      "componentType": 5123,
+      "count": 6,
+      "min": [
+        0
+      ],
+      "max": [
+        5
+      ],
+      "type": "SCALAR",
+      "bufferView": 3,
+      "byteOffset": 0
+    }
+  ],
+  "asset": {
+    "generator": "obj2gltf",
+    "version": "2.0"
+  },
+  "buffers": [
+    {
+      "name": "grid",
+      "byteLength": 204,
+      "uri": "data:application/octet-stream;base64,AABVQgAAAAAzM0lCAABVQgAAAADNzEbCAAA7wgAAAADNzEbCAAA7wgAAAADNzEbCAAA7wgAAAAAzM0lCAABVQgAAAAAzM0lCAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAIA/AACAPwAAgD8AAABAAACAPwAAAEAAAAAAAAAAQAAAAAAAAIA/AAABAAIAAwAEAAUA"
+    }
+  ],
+  "bufferViews": [
+    {
+      "name": "bufferView_0",
+      "buffer": 0,
+      "byteLength": 72,
+      "byteOffset": 0,
+      "byteStride": 12,
+      "target": 34962
+    },
+    {
+      "name": "bufferView_1",
+      "buffer": 0,
+      "byteLength": 72,
+      "byteOffset": 72,
+      "byteStride": 12,
+      "target": 34962
+    },
+    {
+      "name": "bufferView_2",
+      "buffer": 0,
+      "byteLength": 48,
+      "byteOffset": 144,
+      "byteStride": 8,
+      "target": 34962
+    },
+    {
+      "name": "bufferView_3",
+      "buffer": 0,
+      "byteLength": 12,
+      "byteOffset": 192,
+      "target": 34963
+    }
+  ],
+  "materials": [
+    {
+      "name": "standard_shader_ball_scene:ground1",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.5,
+          0.5,
+          0.5,
+          1
+        ],
+        "metallicFactor": 0,
+        "roughnessFactor": 1
+      },
+      "emissiveFactor": [
+        0,
+        0,
+        0
+      ],
+      "alphaMode": "OPAQUE",
+      "doubleSided": false
+    }
+  ],
+  "meshes": [
+    {
+      "name": "standard_shader_ball_scene:grid standard_shader_ball_scene:ground standard_shader_ball_scene:standard_shader_ball_scene_1",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TEXCOORD_0": 2
+          },
+          "indices": 3,
+          "material": 0,
+          "mode": 4
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "standard_shader_ball_scene:grid standard_shader_ball_scene:ground standard_shader_ball_scene:standard_shader_ball_scene",
+      "mesh": 0
+    }
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "nodes": [
+        0
+      ]
+    }
+  ]
+}
