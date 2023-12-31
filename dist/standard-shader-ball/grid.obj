@@ -1,0 +1,23 @@
+# This file uses centimeters as units for non-parametric coordinates.
+
+mtllib grid.mtl
+g default
+v -46.750000 0.000000 -49.700000
+v 53.250000 0.000000 -49.700000
+v -46.750000 0.000000 50.300000
+v 53.250000 0.000000 50.300000
+vt 0.000000 0.000000
+vt 1.000000 0.000000
+vt 1.000000 -1.000000
+vt 1.000000 -1.000000
+vt 0.000000 -1.000000
+vt 0.000000 0.000000
+vn 0.000000 1.000000 0.000000
+vn 0.000000 1.000000 0.000000
+vn 0.000000 1.000000 0.000000
+vn 0.000000 1.000000 0.000000
+s 1
+g standard_shader_ball_scene:grid standard_shader_ball_scene:ground standard_shader_ball_scene:standard_shader_ball_scene
+usemtl standard_shader_ball_scene:ground1
+f 4/1/1 2/2/2 1/3/3
+f 1/4/3 3/5/4 4/6/1
