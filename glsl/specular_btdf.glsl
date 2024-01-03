@@ -64,7 +64,7 @@ vec3 specular_btdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
 
     // Compute masking-shadowing term G2
-    float G2 = ggx_G2(winputR, woutputR, mR, alpha_x, alpha_y);
+    float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
 
     // Thus evaluate BRDF.
     // Note that the (transmission) Fresnel factor is omitted, as it is accounted for (approximately)
@@ -141,14 +141,14 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float G1 = ggx_G1(winputR, mR, alpha_x, alpha_y);
+    float G1 = ggx_G1(winputR, alpha_x, alpha_y);
     float DV = D * G1 * max(0.0, dot(winputR, mR)) / max(DENOM_TOLERANCE, abs(winputR.z));
 
     // Thus compute PDF of woutputL sample
     pdf_woutputL = DV * dwh_dwo;
 
     // Compute masking-shadowing term G2
-    float G2 = ggx_G2(winputR, woutputR, mR, alpha_x, alpha_y);
+    float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
 
     // Thus evaluate BRDF.
     // Note that the (transmission) Fresnel factor is omitted, as it is accounted for (approximately)
@@ -211,7 +211,7 @@ float specular_btdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float G1 = ggx_G1(winputR, mR, alpha_x, alpha_y);
+    float G1 = ggx_G1(winputR, alpha_x, alpha_y);
     float DV = D * G1 * max(0.0, dot(winputR, mR)) / max(DENOM_TOLERANCE, abs(winputR.z));
 
     // Thus compute PDF of woutputL sample

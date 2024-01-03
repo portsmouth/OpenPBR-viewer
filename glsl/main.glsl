@@ -85,6 +85,7 @@ const float DENOM_TOLERANCE       = 5.0e-7;
 const float RADIANCE_EPSILON      = 1.0e-6;
 const float TRANSMITTANCE_EPSILON = 1.0e-3;
 const float PDF_EPSILON           = 1.0e-6;
+const float FLT_EPSILON           = 1.2e-7;
 
 // material indices
 const int SCENE_MATERIAL = 0;
@@ -373,75 +374,20 @@ vec3 ggx_ndf_sample(in vec3 wiL, float alpha_x, float alpha_y, inout int rndSeed
     return H;
 }
 
-// Shadow-masking function
-// Approximation from Walter et al (v = arbitrary direction, m = microfacet normal)
-float ggx_G1(in vec3 vLocal, in vec3 mL, float alpha_x, float alpha_y)
+float ggx_lambda(in vec3 w, float alpha_x, float alpha_y)
 {
-    float tanThetaAbs = abs(tanTheta(vLocal));
-    float epsilon = 1.0e-6;
-    if (tanThetaAbs < epsilon) return 1.0; // perpendicular incidence -- no shadowing/masking
-
-    //if (dot(vLocal, mL) * vLocal.z <= 0.0)
-    //    return 0.0; // Back side is not visible from the front side, and the reverse.
-    float Lambda = (-1.0 + sqrt(1.0 + (sqr(alpha_x*mL.x) + sqr(alpha_y*mL.y))/sqr(mL.z))) / 2.0;
-    return 1.0/(1.0 + Lambda);
-}
-
-float ggx_G2(in vec3 woL, in vec3 wiL, in vec3 mL, float alpha_x, float alpha_y)
-{
-    return ggx_G1(woL, mL, alpha_x, alpha_y) *
-           ggx_G1(wiL, mL, alpha_x, alpha_y);
-}
-
-
-///////////////////////////////////
-// for debug
-///////////////////////////////////
-
-float microfacetEval_beckmann(in vec3 m, in float alpha_x, in float alpha_y)
-{
-    float t2 = tanTheta2(m);
-    float c2 = cosTheta2(m);
-    float roughnessSqr = alpha_x*alpha_x;
-    float epsilon = 1.0e-9;
-    float exponent = t2 / max(roughnessSqr, epsilon);
-    float D = exp(-exponent) / max(PI*roughnessSqr*c2*c2, epsilon);
-    return D;
-}
-
-vec3 microfacetSample_beckmann(in float alpha_x, in float alpha_y, inout int rndSeed)
-{
-    float phiM = (2.0 * PI) * rand(rndSeed);
-    float cosPhiM = cos(phiM);
-    float sinPhiM = sin(phiM);
-    float epsilon = 1.0e-9;
-    float roughnessSqr = alpha_x*alpha_x;
-    float tanThetaMSqr = -roughnessSqr * log(max(epsilon, rand(rndSeed)));
-    float cosThetaM = 1.0 / sqrt(1.0 + tanThetaMSqr);
-    float sinThetaM = sqrt(max(0.0, 1.0 - cosThetaM*cosThetaM));
-    return safe_normalize(vec3(sinThetaM*cosPhiM, sinThetaM*sinPhiM, cosThetaM));
-}
-
-float microfacetPDF_beckmann(in vec3 m, in float alpha_x, in float alpha_y)
-{
-    return microfacetEval_beckmann(m, alpha_x, alpha_y) * abs(cosTheta(m));
+    if (w.z < FLT_EPSILON) return 0.0;
+    return (-1.0 + sqrt(1.0 + (sqr(alpha_x*w.x) + sqr(alpha_y*w.y))/sqr(w.z))) / 2.0;
 }
 
 // Shadow-masking function
 // Approximation from Walter et al (v = arbitrary direction, m = microfacet normal)
-float beckmann_G1(in vec3 vLocal, in vec3 mLocal, float roughness)
+float ggx_G1(in vec3 w, float alpha_x, float alpha_y)
 {
-    float tanThetaAbs = abs(tanTheta(vLocal));
-    float epsilon = 1.0e-6;
-    if (tanThetaAbs < epsilon) return 1.0; // perpendicular incidence -- no shadowing/masking
-    //if (dot(vLocal, mLocal) * vLocal.z <= 0.0) return 0.0; // Back side is not visible from the front side, and the reverse.
-    float a = 1.0 / (max(roughness, epsilon) * tanThetaAbs); // Rational approximation to the shadowing/masking function (Walter et al)  (<0.35% rel. error)
-    if (a >= 1.6) return 1.0;
-    float aSqr = a*a;
-    return (3.535*a + 2.181*aSqr) / (1.0 + 2.276*a + 2.577*aSqr);
+    return 1.0 / (1.0 + ggx_lambda(w, alpha_x, alpha_y));
 }
 
-float beckmann_G2(in vec3 woL, in vec3 wiL, in vec3 mLocal, float roughness)
+float ggx_G2(in vec3 woL, in vec3 wiL, float alpha_x, float alpha_y)
 {
-    return beckmann_G1(woL, mLocal, roughness) * beckmann_G1(wiL, mLocal, roughness);
+    return 1.0 / (1.0 + ggx_lambda(woL, alpha_x, alpha_y) + ggx_lambda(wiL,  alpha_x, alpha_y));
 }

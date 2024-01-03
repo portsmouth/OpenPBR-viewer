@@ -42,7 +42,7 @@ vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
 
     // Compute shadowing-masking term
-    float G2 = ggx_G2(winputR, woutputR, mR, alpha_x, alpha_y);
+    float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
 
     // Compute Fresnel factor for the dielectric reflection
     vec3 F = specular_weight * specular_color * FresnelDielectricReflectance(abs(winputR.z), specular_ior);
@@ -82,14 +82,14 @@ vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float DV = ggx_G1(winputR, mR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) * D / max(DENOM_TOLERANCE, winputR.z);
+    float DV = ggx_G1(winputR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) * D / max(DENOM_TOLERANCE, winputR.z);
 
     // Thus compute PDF of woutputL sample
     float dwh_dwo = 1.0 / max(abs(4.0*dot(winputR, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
     pdf_woutputL = DV * dwh_dwo;
 
     // Compute shadowing-masking term
-    float G2 = ggx_G2(winputR, woutputR, mR, alpha_x, alpha_y);
+    float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
 
     // Compute Fresnel factor for the dielectric reflection
     vec3 F = specular_weight * specular_color * FresnelDielectricReflectance(abs(winputR.z), specular_ior);
@@ -127,7 +127,7 @@ float specular_brdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float DV = ggx_G1(winputR, mR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) * D / winputR.z;
+    float DV = ggx_G1(winputR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) * D / winputR.z;
 
     // Thus compute PDF of woutputL sample
     float dwh_dwo = 1.0 / max(abs(4.0*dot(winputR, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
