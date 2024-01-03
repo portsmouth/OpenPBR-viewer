@@ -35,7 +35,7 @@ vec3 coat_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
     float F = FresnelDielectricReflectance(abs(winputR.z), coat_ior);
 
     // Thus evaluate BRDF
-    return vec3(F) * D * ggx_G2(winputR, woutputR, mR, alpha_x, alpha_y) / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
+    return vec3(F) * D * ggx_G2(winputR, woutputR, alpha_x, alpha_y) / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
 }
 
 vec3 coat_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
@@ -61,7 +61,7 @@ vec3 coat_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float DV = ggx_G1(winputR, mR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) * D / max(DENOM_TOLERANCE, winputR.z);
+    float DV = ggx_G1(winputR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) * D / max(DENOM_TOLERANCE, winputR.z);
 
     // Thus compute PDF of woutputL sample
     float dwh_dwo = 1.0 / max(abs(4.0*dot(winputR, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
@@ -71,7 +71,7 @@ vec3 coat_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
     float F = FresnelDielectricReflectance(abs(winputR.z), coat_ior);
 
     // Thus evaluate BRDF
-    return vec3(F) * D * ggx_G2(winputR, woutputR, mR, alpha_x, alpha_y) / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
+    return vec3(F) * D * ggx_G2(winputR, woutputR, alpha_x, alpha_y) / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
 }
 
 float coat_brdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL)
@@ -92,7 +92,7 @@ float coat_brdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutput
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float DV = ggx_G1(winputR, mR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) * D / winputR.z;
+    float DV = ggx_G1(winputR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) * D / winputR.z;
 
     // Thus compute PDF of woutputL sample
     float dwh_dwo = 1.0 / max(abs(4.0*dot(winputR, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping

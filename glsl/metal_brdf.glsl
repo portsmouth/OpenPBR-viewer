@@ -42,7 +42,7 @@ vec3 metal_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wo
     vec3 F = FresnelF82Tint(abs(dot(winputR, mR)), base_weight * base_color, specular_weight * specular_color);
 
     // Compute shadowing-masking term
-    float G2 = ggx_G2(winputR, woutputR, mR, alpha_x, alpha_y);
+    float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
 
     // Thus evaluate BRDF
     return F * D * G2 / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
@@ -72,7 +72,7 @@ vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float DV = D * ggx_G1(winputR, mR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) / max(DENOM_TOLERANCE, winputR.z);
+    float DV = D * ggx_G1(winputR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) / max(DENOM_TOLERANCE, winputR.z);
 
     // Thus compute PDF of woutputL sample
     float dwh_dwo = 1.0 / max(abs(4.0*dot(winputR, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
@@ -82,7 +82,7 @@ vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
     vec3 F = FresnelF82Tint(abs(dot(winputR, mR)), base_weight * base_color, specular_weight * specular_color);
 
     // Compute shadowing-masking term
-    float G2 = ggx_G2(winputR, woutputR, mR, alpha_x, alpha_y);
+    float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
 
     // Thus evaluate BRDF
     return F * D * G2 / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
@@ -107,7 +107,7 @@ float metal_brdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutpu
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float DV = ggx_G1(winputR, mR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) * D / max(DENOM_TOLERANCE, winputR.z);
+    float DV = ggx_G1(winputR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) * D / max(DENOM_TOLERANCE, winputR.z);
 
     // Thus compute PDF of woutputL sample
     float dwh_dwo = 1.0 / max(abs(4.0*dot(winputR, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
