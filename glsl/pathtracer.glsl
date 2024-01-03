@@ -234,6 +234,8 @@ void main()
                     pW, rayDir);
     rayDir = normalize(rayDir);
 
+    bool inDielectric = false;
+
     // Perform uni-directional pathtrace starting from the (pinhole) camera lens to estimate the primary ray radiance, L
     vec3 L = vec3(0.0);
     vec3 throughput = vec3(1.0);
@@ -281,8 +283,8 @@ void main()
                 // If the surface is opaque, but the incident ray lies below the hemisphere of the normal,
                 // which can occur due to shading normals, apply the "Flipping hack" to prevent artifacts
                 // (see Schüßler, "Microfacet-based Normal Mapping for Robust Monte Carlo Path Tracing")
-                //if (dot(NsW, rayDir) > 0.0)
-                //    NsW = 2.0*NgW*dot(NgW, NsW) - NsW;
+                if (dot(NsW, rayDir) > 0.0)
+                    NsW = 2.0*NgW*dot(NgW, NsW) - NsW;
                 basis = makeBasis(NsW, baryCoord);
             #else
                 basis = makeBasis(NgW, baryCoord);
@@ -297,12 +299,11 @@ void main()
             vec3 f = sampleBsdf(pW, basis, winputL, material, woutputL, bsdfPdf, rndSeed);
             vec3 woutputW = localToWorld(woutputL, basis);
 
-            ////////////////////////////////////////////////////
-            // DEBUG
-            //L = throughput * f / max(PDF_EPSILON, bsdfPdf) * abs(woutputL.z);
-            //if (vertex==1)
-            //    break;
-            ////////////////////////////////////////////////////
+            bool transmitted = (dot(winputW, NgW) * dot(woutputW, NgW) < 0.0);
+            if (transmitted)
+            {
+                inDielectric = !inDielectric;
+            }
 
             // Update ray direction to the BSDF-sampled direction
             rayDir = woutputW;
@@ -311,8 +312,9 @@ void main()
             pW += NgW * sign(dot(rayDir, NgW)) * RAY_OFFSET; // perturb vertex into geometric half-space of scattered ray
 
             // Add direct lighting term at the current surface vertex
-            float skyPdf;
-            L += throughput * directSurfaceLighting(pW, basis, winputW, material, skyPdf, rndSeed);
+            float skyPdf = 0.0;
+            if (!inDielectric)
+                L += throughput * directSurfaceLighting(pW, basis, winputW, material, skyPdf, rndSeed);
 
             // Update path continuation throughput
             throughput *= f / max(PDF_EPSILON, bsdfPdf) * abs(woutputL.z);

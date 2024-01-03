@@ -13,6 +13,15 @@ void specular_ndf_roughnesses(out float alpha_x, out float alpha_y)
 vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
                             inout int rndSeed)
 {
+    float n_exterior = 1.0;
+    float n_interior = specular_ior;
+    float eta_ti = n_interior/n_exterior;
+    if (abs(eta_ti - 1.0) < 1.0e-4)
+    {
+        // degenerate case of index-matched interface, BRDF goes to zero
+        return vec3(0.0);
+    }
+
     bool transmitted = woutputL.z * winputL.z < 0.0;
     if (transmitted)
         return vec3(0.0);
@@ -45,6 +54,16 @@ vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
 vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
                           out vec3 woutputL, out float pdf_woutputL, inout int rndSeed)
 {
+    float n_exterior = 1.0;
+    float n_interior = specular_ior;
+    float eta_ti = n_interior/n_exterior;
+    if (abs(eta_ti - 1.0) < 1.0e-4)
+    {
+        // degenerate case of index-matched interface, BRDF goes to zero
+        pdf_woutputL = 1.0;
+        return vec3(0.0);
+    }
+
     // Construct basis such that x, y are aligned with the T, B in the rotated frame
     LocalFrameRotation rotation = getLocalFrameRotation(PI2 * specular_rotation);
     vec3 winputR = localToRotated(winputL, rotation);
@@ -85,6 +104,15 @@ float specular_brdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
     if (transmitted)
         return PDF_EPSILON;
 
+    float n_exterior = 1.0;
+    float n_interior = specular_ior;
+    float eta_ti = n_interior/n_exterior;
+    if (abs(eta_ti - 1.0) < 1.0e-4)
+    {
+        // degenerate case of index-matched interface, BRDF goes to zero
+        return 1.0;
+    }
+
     // Construct basis such that x, y are aligned with the T, B in the local, rotated frame
     LocalFrameRotation rotation = getLocalFrameRotation(PI2 * specular_rotation);
     vec3 winputR  = localToRotated(winputL,  rotation);
@@ -110,6 +138,15 @@ float specular_brdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
 vec3 specular_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL,
                           inout int rndSeed)
 {
+    float n_exterior = 1.0;
+    float n_interior = specular_ior;
+    float eta_ti = n_interior/n_exterior;
+    if (abs(eta_ti - 1.0) < 1.0e-4)
+    {
+        // degenerate case of index-matched interface, BRDF goes to zero
+        return vec3(0.0);
+    }
+
     // Approximate albedo via Monte-Carlo sampling:
     const int num_samples = 4;
     vec3 albedo = vec3(0.0);
