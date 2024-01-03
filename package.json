@@ -1,17 +1,23 @@
 {
   "dependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
     "stats.js": "^0.17.0",
     "three": "^0.159.0",
     "three-mesh-bvh": "^0.6.8"
   },
   "devDependencies": {
+    "gh-pages": "^6.1.1",
     "vite": "^5.0.10"
   },
   "name": "openpbr_viewer",
+  "private": true,
+  "homepage": "https://portsmouth.github.io/OpenPBR-glsl-example/",
   "version": "1.0.0",
   "description": "OpenPBR example GLSL viewer",
   "main": "main.js",
   "scripts": {
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d dist",
     "build": "vite build",
     "preview": "vite preview --port 8080",
     "test": "echo \"Error: no test specified\" && exit 1"

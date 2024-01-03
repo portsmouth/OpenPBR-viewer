@@ -80,8 +80,8 @@ const float RECIPROCAL_PI2        = 0.15915494309189535;
 
 // tolerances
 const float HUGE_DIST             = 1.0e20;
-const float RAY_OFFSET            = 5.0e-4;
-const float DENOM_TOLERANCE       = 1.0e-7;
+const float RAY_OFFSET            = 1.0e-3;
+const float DENOM_TOLERANCE       = 5.0e-7;
 const float RADIANCE_EPSILON      = 1.0e-6;
 const float TRANSMITTANCE_EPSILON = 1.0e-3;
 const float PDF_EPSILON           = 1.0e-6;
@@ -156,6 +156,29 @@ struct Basis
     vec3 baryCoord;
 };
 
+Basis makeBasis(in vec3 nW, in vec3 baryCoord)
+{
+    Basis basis;
+    basis.nW = normalize(nW);
+    if (abs(nW.z) < abs(nW.x))
+    {
+        basis.tW.x =  basis.nW.z;
+        basis.tW.y =  0.0;
+        basis.tW.z = -basis.nW.x;
+    }
+    else
+    {
+        basis.tW.x =  0.0;
+        basis.tW.y = basis.nW.z;
+        basis.tW.z = -basis.nW.y;
+    }
+    basis.tW = safe_normalize(basis.tW);
+    basis.bW = cross(nW, basis.tW);
+    basis.baryCoord = baryCoord;
+    return basis;
+}
+
+/*
 Basis makeBasis(in vec3 nW, in vec3 tW, in vec3 baryCoord)
 {
     Basis basis;
@@ -165,6 +188,8 @@ Basis makeBasis(in vec3 nW, in vec3 tW, in vec3 baryCoord)
     basis.baryCoord = baryCoord;
     return basis;
 }
+*/
+
 
 vec3 worldToLocal(in vec3 vWorld, in Basis basis)
 {
@@ -245,9 +270,9 @@ vec3 sampleHemisphereCosineWeighted(inout int rndSeed, inout float pdf)
     return wiL;
 }
 
-float powerHeuristic(const float a, const float b)
+float balanceHeuristic(const float a, const float b)
 {
-    return a/(a + b);
+    return a / (a + b);
 }
 
 float sample_triangle_filter(float xi)
@@ -294,7 +319,7 @@ float FresnelDielectricReflectance(in float cosi, in float eta_ti)
 /////////////////////////////////////////////////////////////////////////
 
 // m = the microfacet normal (in the local space where z = the macrosurface normal)
-float microfacetEval(in vec3 m, in float alpha_x, in float alpha_y)
+float ggx_ndf_eval(in vec3 m, in float alpha_x, in float alpha_y)
 {
     // Evaluate the anisotropic GGX NDF
     float ax = max(alpha_x, DENOM_TOLERANCE);
@@ -303,11 +328,12 @@ float microfacetEval(in vec3 m, in float alpha_x, in float alpha_y)
     return 1.0 / max(Ddenom, DENOM_TOLERANCE);
 }
 
-vec3 sampleGGXVNDF(in vec3 wiL, float alpha_x, float alpha_y, inout int rndSeed)
+/*
+vec3 ggx_ndf_sample(in vec3 wiL, float alpha_x, float alpha_y, inout int rndSeed)
 {
     vec3 Vh = normalize(vec3(alpha_x*wiL.x, alpha_y*wiL.y, wiL.z));
     float lensq = Vh.x*Vh.x + Vh.y*Vh.y;
-    vec3 T1 = lensq > 0.0 ? vec3(-Vh.y, Vh.x, 0.0) * 1.0/sqrt(lensq) : vec3(1.0, 0.0, 0.0);
+    vec3 T1 = lensq > 0.0 ? vec3(-Vh.y, Vh.x, 0.0) * 1.0/max(DENOM_TOLERANCE, sqrt(lensq)) : vec3(1.0, 0.0, 0.0);
     vec3 T2 = cross(Vh, T1);
     float r = sqrt(rand(rndSeed));
     float phi = 2.0 * PI * rand(rndSeed);
@@ -319,23 +345,58 @@ vec3 sampleGGXVNDF(in vec3 wiL, float alpha_x, float alpha_y, inout int rndSeed)
     vec3 Ne = normalize(vec3(alpha_x*Nh.x, alpha_y*Nh.y, max(0.0, Nh.z)));
     return Ne;
 }
+*/
+
+vec3 ggx_ndf_sample(in vec3 wiL, float alpha_x, float alpha_y, inout int rndSeed)
+{
+    vec2 Xi = vec2(rand(rndSeed), rand(rndSeed));
+    vec3 V = wiL;
+    vec2 alpha = vec2(alpha_x, alpha_y);
+
+    // Transform the view direction to the hemisphere configuration.
+    V = normalize(vec3(V.xy * alpha, V.z));
+
+    // Sample a spherical cap in (-V.z, 1].
+    float phi = 2.0 * PI * Xi.x;
+    float z = (1.0 - Xi.y) * (1.0 + V.z) - V.z;
+    float sinTheta = sqrt(clamp(1.0 - z * z, 0.0, 1.0));
+    float x = sinTheta * cos(phi);
+    float y = sinTheta * sin(phi);
+    vec3 c = vec3(x, y, z);
+
+    // Compute the microfacet normal.
+    vec3 H = c + V;
+
+    // Transform the microfacet normal back to the ellipsoid configuration.
+    H = normalize(vec3(H.xy * alpha, H.z));
+
+    return H;
+}
 
 // Shadow-masking function
 // Approximation from Walter et al (v = arbitrary direction, m = microfacet normal)
-float G1(in vec3 vLocal, in vec3 mL, float alpha_x, float alpha_y)
+float ggx_G1(in vec3 vLocal, in vec3 mL, float alpha_x, float alpha_y)
 {
-    if (dot(vLocal, mL) * vLocal.z <= 0.0) 
-        return 0.0; // Back side is not visible from the front side, and the reverse.
+    float tanThetaAbs = abs(tanTheta(vLocal));
+    float epsilon = 1.0e-6;
+    if (tanThetaAbs < epsilon) return 1.0; // perpendicular incidence -- no shadowing/masking
+
+    //if (dot(vLocal, mL) * vLocal.z <= 0.0)
+    //    return 0.0; // Back side is not visible from the front side, and the reverse.
     float Lambda = (-1.0 + sqrt(1.0 + (sqr(alpha_x*mL.x) + sqr(alpha_y*mL.y))/sqr(mL.z))) / 2.0;
     return 1.0/(1.0 + Lambda);
 }
 
-float G2(in vec3 woL, in vec3 wiL, in vec3 mL, float alpha_x, float alpha_y)
+float ggx_G2(in vec3 woL, in vec3 wiL, in vec3 mL, float alpha_x, float alpha_y)
 {
-    return G1(woL, mL, alpha_x, alpha_y) * G1(wiL, mL, alpha_x, alpha_y);
+    return ggx_G1(woL, mL, alpha_x, alpha_y) *
+           ggx_G1(wiL, mL, alpha_x, alpha_y);
 }
 
 
+///////////////////////////////////
+// for debug
+///////////////////////////////////
 
 float microfacetEval_beckmann(in vec3 m, in float alpha_x, in float alpha_y)
 {
@@ -363,5 +424,24 @@ vec3 microfacetSample_beckmann(in float alpha_x, in float alpha_y, inout int rnd
 
 float microfacetPDF_beckmann(in vec3 m, in float alpha_x, in float alpha_y)
 {
-    return microfacetEval(m, alpha_x, alpha_y) * abs(cosTheta(m));
+    return microfacetEval_beckmann(m, alpha_x, alpha_y) * abs(cosTheta(m));
+}
+
+// Shadow-masking function
+// Approximation from Walter et al (v = arbitrary direction, m = microfacet normal)
+float beckmann_G1(in vec3 vLocal, in vec3 mLocal, float roughness)
+{
+    float tanThetaAbs = abs(tanTheta(vLocal));
+    float epsilon = 1.0e-6;
+    if (tanThetaAbs < epsilon) return 1.0; // perpendicular incidence -- no shadowing/masking
+    //if (dot(vLocal, mLocal) * vLocal.z <= 0.0) return 0.0; // Back side is not visible from the front side, and the reverse.
+    float a = 1.0 / (max(roughness, epsilon) * tanThetaAbs); // Rational approximation to the shadowing/masking function (Walter et al)  (<0.35% rel. error)
+    if (a >= 1.6) return 1.0;
+    float aSqr = a*a;
+    return (3.535*a + 2.181*aSqr) / (1.0 + 2.276*a + 2.577*aSqr);
+}
+
+float beckmann_G2(in vec3 woL, in vec3 wiL, in vec3 mLocal, float roughness)
+{
+    return beckmann_G1(woL, mLocal, roughness) * beckmann_G1(wiL, mLocal, roughness);
 }

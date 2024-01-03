@@ -43,8 +43,16 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir,
         material = SHELL_MATERIAL;
         baryCoord = barycoord_shell;
         Ng = safe_normalize(faceNormal_shell);
-        if (has_normals_shell)  Ns = textureSampleBarycoord(normalAttribute_shell, barycoord_shell, faceIndices_shell.xyz).xyz;
-        else                    Ns = Ng;
+        if (has_normals_shell)
+        {
+            Ns = textureSampleBarycoord(normalAttribute_shell, barycoord_shell, faceIndices_shell.xyz).xyz;
+            const bool flip_normals = false;
+            if (flip_normals)
+                Ns *= -1.0;
+            if (dot(Ns, Ng) < 0.0) Ns *= -1.0; // align geometric normal into same hemisphere as shading normal, if supplied
+        }
+        else
+            Ns = Ng;
         if (has_tangents_shell) Ts = textureSampleBarycoord(tangentAttribute_shell, barycoord_shell, faceIndices_shell.xyz).xyz;
         else                    Ts = normalToTangent(Ns);
     }
@@ -54,8 +62,16 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir,
         material = SCENE_MATERIAL;
         baryCoord = barycoord_scene;
         Ng = safe_normalize(faceNormal_scene);
-        if (has_normals_scene)  Ns = textureSampleBarycoord(normalAttribute_scene, barycoord_scene, faceIndices_scene.xyz).xyz;
-        else                    Ns = Ng;
+        if (has_normals_scene)
+        {
+            const bool flip_normals = false;
+            if (flip_normals)
+                Ns *= -1.0;
+            Ns = textureSampleBarycoord(normalAttribute_scene, barycoord_scene, faceIndices_scene.xyz).xyz;
+            if (dot(Ns, Ng) < 0.0) Ns *= -1.0; // align geometric normal into same hemisphere as shading normal, if supplied
+        }
+        else
+            Ns = Ng;
         if (has_tangents_scene) Ts = textureSampleBarycoord(tangentAttribute_scene, barycoord_scene, faceIndices_scene.xyz).xyz;
         else                    Ts = normalToTangent(Ns);
     }                
@@ -83,7 +99,7 @@ float TraceShadow(in vec3 rayOrigin, in vec3 rayDir)
                 rayOrigin = pW_hit + ngW_hit * sign(dot(rayDir, ngW_hit)) * RAY_OFFSET;
         }
         else
-            return 1.0; //Transmittance;
+            return Transmittance;
     }
     return Transmittance;
 }
@@ -96,7 +112,7 @@ float TraceShadow(in vec3 rayOrigin, in vec3 rayDir)
 vec3 grey_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL)
 {
     if (winputL.z < 0.0 || woutputL.z < 0.0) return vec3(0.0);
-    if (minComponent(basis.baryCoord) < 0.01) 
+    if (minComponent(basis.baryCoord) < 0.01)
         return vec3(0.0);
     return vec3(0.5)/PI;
 }
@@ -107,7 +123,7 @@ vec3 grey_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
     if (winputL.z < 0.0) return vec3(0.0);
     vec3 diffuseAlbedo;
     woutputL = sampleHemisphereCosineWeighted(rndSeed, pdf_woutputL);
-    if (minComponent(basis.baryCoord) < 0.01) 
+    if (minComponent(basis.baryCoord) < 0.01)
         return vec3(0.0);
     return vec3(0.5)/PI;
 }
@@ -125,27 +141,21 @@ float grey_brdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutput
 vec3 evaluateBsdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL, in int material, 
                     inout int rndSeed)
 {
-    if (winputL.z < DENOM_TOLERANCE || woutputL.z < DENOM_TOLERANCE) return vec3(0.0);
     if (material == SHELL_MATERIAL) return openpbr_bsdf_evaluate(pW, basis, winputL, woutputL, rndSeed);
-    //if (material == SHELL_MATERIAL) return diffuse_brdf_evaluate(pW, basis, winputL, woutputL, rndSeed);
     else                            return    grey_brdf_evaluate(pW, basis, winputL, woutputL);
 }
 
 vec3 sampleBsdf(in vec3 pW, in Basis basis, in vec3 winputL, in int material,
                 out vec3 woutputL, out float pdfOut, inout int rndSeed)
 {
-    if (winputL.z < DENOM_TOLERANCE) return vec3(0.0);
     if (material == SHELL_MATERIAL) return openpbr_bsdf_sample(pW, basis, winputL, woutputL, pdfOut, rndSeed);
-    //if (material == SHELL_MATERIAL) return diffuse_brdf_sample(pW, basis, winputL, woutputL, pdfOut, rndSeed);
     else                            return    grey_brdf_sample(pW, basis, winputL, woutputL, pdfOut, rndSeed);
 }
 
 float pdfBsdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL, in int material,
                 inout int rndSeed)
 {
-    if (winputL.z < DENOM_TOLERANCE || woutputL.z < DENOM_TOLERANCE) return 0.0;
     if (material == SHELL_MATERIAL) return openpbr_bsdf_pdf(pW, basis, winputL, woutputL, rndSeed);
-    //if (material == SHELL_MATERIAL) return diffuse_brdf_pdf(pW, basis, winputL, woutputL);
     else                            return    grey_brdf_pdf(pW, basis, winputL, woutputL);
 }
 
@@ -190,7 +200,7 @@ vec3 directSurfaceLighting(in vec3 pW, in Basis basis, in vec3 winputW, in int m
             // Apply MIS weight with the BSDF pdf for the sampled direction
             float bsdfPdf = max(PDF_EPSILON, pdfBsdf(pW, basis, winputL, woutputL, material, rndSeed));
             vec3 f = evaluateBsdf(pW, basis, winputL, woutputL, material, rndSeed);
-            float misWeight = powerHeuristic(skyPdf, bsdfPdf);
+            float misWeight = balanceHeuristic(skyPdf, bsdfPdf);
             Ldirect += f * Li/max(PDF_EPSILON, skyPdf) * abs(dot(woutputW, basis.nW)) * misWeight;
         }
     }
@@ -233,7 +243,7 @@ void main()
     int material;
     vec3 pW_hit, NsW_hit, NgW_hit, TsW_hit, baryCoord;
     bool hit = trace(pW, rayDir, 
-                        pW_hit, NsW_hit, NgW_hit, TsW_hit, baryCoord, material);
+                     pW_hit, NsW_hit, NgW_hit, TsW_hit, baryCoord, material);
     if (!hit)
     {
         // Camera ray missed all geometry; add contribution from distant lights and terminate path
@@ -265,18 +275,19 @@ void main()
             vec3 NgW = NgW_hit;
             vec3 TsW = TsW_hit;
 
+            // Construct shading frame
+            Basis basis;
             #if SMOOTH_NORMALS
                 // If the surface is opaque, but the incident ray lies below the hemisphere of the normal,
                 // which can occur due to shading normals, apply the "Flipping hack" to prevent artifacts
                 // (see Schüßler, "Microfacet-based Normal Mapping for Robust Monte Carlo Path Tracing")
-                if (dot(NsW, rayDir) > 0.0)
-                    NsW = 2.0*NgW*dot(NgW, NsW) - NsW;
+                //if (dot(NsW, rayDir) > 0.0)
+                //    NsW = 2.0*NgW*dot(NgW, NsW) - NsW;
+                basis = makeBasis(NsW, baryCoord);
             #else
-                NsW = NgW;
+                basis = makeBasis(NgW, baryCoord);
             #endif
 
-            // Construct shading frame
-            Basis basis = makeBasis(NsW, TsW, baryCoord);
             vec3 winputW = -rayDir; // winputW, points *towards* the incident ray direction (parallel to photon)
 
             // Sample BSDF for the next bounce direction
@@ -286,6 +297,13 @@ void main()
             vec3 f = sampleBsdf(pW, basis, winputL, material, woutputL, bsdfPdf, rndSeed);
             vec3 woutputW = localToWorld(woutputL, basis);
 
+            ////////////////////////////////////////////////////
+            // DEBUG
+            //L = throughput * f / max(PDF_EPSILON, bsdfPdf) * abs(woutputL.z);
+            //if (vertex==1)
+            //    break;
+            ////////////////////////////////////////////////////
+
             // Update ray direction to the BSDF-sampled direction
             rayDir = woutputW;
 
@@ -293,11 +311,11 @@ void main()
             pW += NgW * sign(dot(rayDir, NgW)) * RAY_OFFSET; // perturb vertex into geometric half-space of scattered ray
 
             // Add direct lighting term at the current surface vertex
-            float skyPdf = 0.0;
+            float skyPdf;
             L += throughput * directSurfaceLighting(pW, basis, winputW, material, skyPdf, rndSeed);
 
             // Update path continuation throughput
-            throughput *= abs(dot(woutputW, NsW)) * f / max(PDF_EPSILON, bsdfPdf);
+            throughput *= f / max(PDF_EPSILON, bsdfPdf) * abs(woutputL.z);
 
             // TODO: Russian roulette
             
@@ -309,7 +327,7 @@ void main()
             if (!hit)
             {
                 // This ray missed all geometry; add contribution from distant lights and terminate path
-                misWeightSky = powerHeuristic(bsdfPdf, skyPdf);
+                misWeightSky = balanceHeuristic(bsdfPdf, skyPdf);
                 L += throughput * misWeightSky * environmentRadiance(rayDir);
                 break;
             }
