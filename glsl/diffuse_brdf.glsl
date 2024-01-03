@@ -6,12 +6,14 @@
 
 vec3 diffuse_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL)
 {
+    if (winputL.z < DENOM_TOLERANCE || woutputL.z < DENOM_TOLERANCE) return vec3(0.0);
     return base_weight * base_color / PI;
 }
 
 vec3 diffuse_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
                             out vec3 woutputL, out float pdf_woutputL, inout int rndSeed)
 {
+    if (winputL.z < DENOM_TOLERANCE) return vec3(0.0);
     woutputL = sampleHemisphereCosineWeighted(rndSeed, pdf_woutputL);
     return base_weight * base_color / PI;
 }
@@ -24,6 +26,7 @@ float diffuse_brdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wout
 vec3 diffuse_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL,
                          inout int rndSeed)
 {
+    if (winputL.z < DENOM_TOLERANCE) return vec3(0.0);
     return base_weight * base_color;
 }
 

@@ -35,60 +35,88 @@ struct LobeProbabilities
 void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed,
                           inout LobeWeights weights, inout LobeAlbedos albedos)
 {
+    /////////////////////////////////////////////////////////////////////
+    // Surface
+    /////////////////////////////////////////////////////////////////////
+
     // Fuzz BRDF
-    weights.m[ID_FUZZ_BRDF] = vec3(0.0); // fuzz_weight;
-    if (minComponent(weights.m[ID_FUZZ_BRDF]) > 0.0) albedos.m[ID_FUZZ_BRDF] = vec3(0.0); //fuzz_brdf_albedo(pW, basis, winputL, rndSeed);
-    else                                             albedos.m[ID_FUZZ_BRDF] = vec3(0.0);
+    //weights.m[ID_FUZZ_BRDF] = vec3(0.0); // fuzz_weight;
+    //if (maxComponent(weights.m[ID_FUZZ_BRDF]) > 0.0) albedos.m[ID_FUZZ_BRDF] = vec3(0.0); //fuzz_brdf_albedo(pW, basis, winputL, rndSeed);
+    //else                                             albedos.m[ID_FUZZ_BRDF] = vec3(0.0);
     
-    // Coat BRDF
-    vec3 w_coated_base = vec3(1.0); //mix(vec3(1.0), vec3(1.0) - albedos.a_fuzz_brdf, F)
-    weights.m[ID_COAT_BRDF] = w_coated_base * coat_weight;
-    if (minComponent(weights.m[ID_COAT_BRDF]) > 0.0) albedos.m[ID_COAT_BRDF] = coat_brdf_albedo(pW, basis, winputL, rndSeed); 
-    else                                             albedos.m[ID_COAT_BRDF] = vec3(0.0);
+        /////////////////////////////////////////////////////////////////////
+        // Coated base
+        /////////////////////////////////////////////////////////////////////
 
-    // Metal BRDF
-    vec3 w_base_substrate = w_coated_base * mix(vec3(1.0), coat_color*(vec3(1.0) - albedos.m[ID_COAT_BRDF]), coat_weight);
-    weights.m[ID_META_BRDF] = w_base_substrate * base_metalness;
+        // Coat BRDF
+        //vec3 w_coated_base = vec3(1.0); //mix(vec3(1.0), vec3(1.0) - albedos.a_fuzz_brdf, F)
+        //weights.m[ID_COAT_BRDF] = w_coated_base * coat_weight;
+        //if (maxComponent(weights.m[ID_COAT_BRDF]) > 0.0) albedos.m[ID_COAT_BRDF] = coat_brdf_albedo(pW, basis, winputL, rndSeed);
+        //else                                             albedos.m[ID_COAT_BRDF] = vec3(0.0);
 
-    // Specular BRDF    
-    vec3 w_dielectric_base = w_base_substrate * vec3(1.0 - base_metalness);
-    weights.m[ID_SPEC_BRDF] = w_dielectric_base;
-    if (minComponent(weights.m[ID_SPEC_BRDF]) > 0.0) albedos.m[ID_SPEC_BRDF] = specular_brdf_albedo(pW, basis, winputL, rndSeed);
-    else                                             albedos.m[ID_SPEC_BRDF] = vec3(0.0);
+            /////////////////////////////////////////////////////////////////////
+            // Base substrate
+            /////////////////////////////////////////////////////////////////////
 
-    // Diffuse BRDF
-    vec3 w_dielectric_base_btdf = w_dielectric_base * (vec3(1.0) - albedos.m[ID_SPEC_BRDF]);
-    weights.m[ID_DIFF_BRDF] = w_dielectric_base_btdf * (1.0 - transmission_weight) * (1.0 - subsurface_weight);
+            // Metal BRDF
+            //vec3 w_base_substrate = w_coated_base * mix(vec3(1.0), coat_color*(vec3(1.0) - albedos.m[ID_COAT_BRDF]), coat_weight);
+            //weights.m[ID_META_BRDF] = w_base_substrate * base_metalness;
 
-    // Subsurface BSSRDF
-    weights.m[ID_SSSC_BTDF] = w_dielectric_base_btdf * (1.0 - transmission_weight) * subsurface_weight;
+                /////////////////////////////////////////////////////////////////////
+                // Dielectric base
+                /////////////////////////////////////////////////////////////////////
 
-    // Specular BTDF
-    weights.m[ID_SPEC_BTDF] = w_dielectric_base_btdf * transmission_weight * (1.0 - subsurface_weight);
+                    //////////////////////////////////////////////
+                    // Translucent dielectric base
+                    //////////////////////////////////////////////
+
+                    // Specular BRDF
+                    vec3 w_dielectric_base = vec3(1.0); //w_base_substrate * vec3(1.0 - base_metalness);
+                    weights.m[ID_SPEC_BRDF] = w_dielectric_base;
+                    if (maxComponent(weights.m[ID_SPEC_BRDF]) > 0.0) albedos.m[ID_SPEC_BRDF] = specular_brdf_albedo(pW, basis, winputL, rndSeed);
+                    else                                             albedos.m[ID_SPEC_BRDF] = vec3(0.0);
+
+                    vec3 w_dielectric_base_btdf = w_dielectric_base * (vec3(1.0) - albedos.m[ID_SPEC_BRDF]);
+
+                    // Specular BTDF
+                    weights.m[ID_SPEC_BTDF] = w_dielectric_base_btdf * transmission_weight * (1.0 - subsurface_weight);
+
+                    //////////////////////////////////////////////
+                    // Opaque dielectric base
+                    //////////////////////////////////////////////
+
+                        // Diffuse BRDF
+                        //weights.m[ID_DIFF_BRDF] = vec3(0.0); //w_dielectric_base_btdf * (1.0 - transmission_weight) * (1.0 - subsurface_weight);
+
+                        // Subsurface BSSRDF
+                        //weights.m[ID_SSSC_BTDF] = vec3(0.0); w_dielectric_base_btdf * (1.0 - transmission_weight) * subsurface_weight;
+
+
 }
 
 // Compute remaining albedos that we not computed in openpbr_lobe_weights
 void openpbr_lobe_albedos(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed, in LobeWeights weights, 
                           inout LobeAlbedos albedos)
 {
-    if (minComponent(weights.m[ID_META_BRDF]) > 0.0) albedos.m[ID_META_BRDF] = metal_brdf_albedo(pW, basis, winputL, rndSeed); 
-    else                                             albedos.m[ID_META_BRDF] = vec3(0.0);
-    if (minComponent(weights.m[ID_DIFF_BRDF]) > 0.0) albedos.m[ID_DIFF_BRDF] = diffuse_brdf_albedo(pW, basis, winputL, rndSeed); 
-    else                                             albedos.m[ID_DIFF_BRDF] = vec3(0.0);
-    //if (minComponent(weights.m[ID_SSSC_BTDF]) > 0.0) albedos.m[ID_SSSC_BTDF] = subsurface_btdf_albedo(pW, basis, winputL, rndSeed);
+    //if (maxComponent(weights.m[ID_META_BRDF]) > 0.0) albedos.m[ID_META_BRDF] = metal_brdf_albedo(pW, basis, winputL, rndSeed);
+    //else                                             albedos.m[ID_META_BRDF] = vec3(0.0);
+    //if (maxComponent(weights.m[ID_DIFF_BRDF]) > 0.0) albedos.m[ID_DIFF_BRDF] = diffuse_brdf_albedo(pW, basis, winputL, rndSeed);
+    //else                                             albedos.m[ID_DIFF_BRDF] = vec3(0.0);
+    //if (maxComponent(weights.m[ID_SSSC_BTDF]) > 0.0) albedos.m[ID_SSSC_BTDF] = subsurface_btdf_albedo(pW, basis, winputL, rndSeed);
     //else                                             albedos.m[ID_SSSC_BTDF] = vec3(0.0);
-    //if (minComponent(weights.m[ID_SPEC_BTDF]) > 0.0) albedos.m[ID_SPEC_BTDF] =   specular_btdf_albedo(pW, basis, winputL, rndSeed); 
-    //else                                             albedos.m[ID_SPEC_BTDF] = vec3(0.0);
+    if (maxComponent(weights.m[ID_SPEC_BTDF]) > 0.0) albedos.m[ID_SPEC_BTDF] = specular_btdf_albedo(pW, basis, winputL, rndSeed);
+    else                                             albedos.m[ID_SPEC_BTDF] = vec3(0.0);
 }
 
 vec3 openpbr_bsdf_evaluate_util(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL, inout int rndSeed,
                                 in LobeWeights weights)
 {
     vec3 f = vec3(0.0); // final BRDF
-    if (minComponent(weights.m[ID_COAT_BRDF]) > 0.0) f += weights.m[ID_COAT_BRDF] *     coat_brdf_evaluate(pW, basis, winputL, woutputL, rndSeed);
-    if (minComponent(weights.m[ID_META_BRDF]) > 0.0) f += weights.m[ID_META_BRDF] *    metal_brdf_evaluate(pW, basis, winputL, woutputL, rndSeed);
-    if (minComponent(weights.m[ID_SPEC_BRDF]) > 0.0) f += weights.m[ID_SPEC_BRDF] * specular_brdf_evaluate(pW, basis, winputL, woutputL, rndSeed);
-    if (minComponent(weights.m[ID_DIFF_BRDF]) > 0.0) f += weights.m[ID_DIFF_BRDF] *  diffuse_brdf_evaluate(pW, basis, winputL, woutputL);
+    //if (maxComponent(weights.m[ID_COAT_BRDF]) > 0.0) f += weights.m[ID_COAT_BRDF] *     coat_brdf_evaluate(pW, basis, winputL, woutputL, rndSeed);
+    //if (maxComponent(weights.m[ID_META_BRDF]) > 0.0) f += weights.m[ID_META_BRDF] *    metal_brdf_evaluate(pW, basis, winputL, woutputL, rndSeed);
+    if (maxComponent(weights.m[ID_SPEC_BRDF]) > 0.0) f += weights.m[ID_SPEC_BRDF] * specular_brdf_evaluate(pW, basis, winputL, woutputL, rndSeed);
+    if (maxComponent(weights.m[ID_SPEC_BTDF]) > 0.0) f += weights.m[ID_SPEC_BTDF] * specular_btdf_evaluate(pW, basis, winputL, woutputL, rndSeed);
+    //if (maxComponent(weights.m[ID_DIFF_BRDF]) > 0.0) f += weights.m[ID_DIFF_BRDF] *  diffuse_brdf_evaluate(pW, basis, winputL, woutputL);
     return f;
 }
 
@@ -106,13 +134,13 @@ void openpbr_lobe_probabilities(in LobeWeights weights, inout LobeAlbedos albedo
 {
     // Compute probability of sampling each lobe, according to its albedo
     float W_total = 0.0;
-    probs.m[ID_FUZZ_BRDF] = length(weights.m[ID_FUZZ_BRDF] * albedos.m[ID_FUZZ_BRDF]); W_total += probs.m[ID_FUZZ_BRDF];
-    probs.m[ID_COAT_BRDF] = length(weights.m[ID_COAT_BRDF] * albedos.m[ID_COAT_BRDF]); W_total += probs.m[ID_COAT_BRDF];
-    probs.m[ID_META_BRDF] = length(weights.m[ID_META_BRDF] * albedos.m[ID_META_BRDF]); W_total += probs.m[ID_META_BRDF];
+    probs.m[ID_FUZZ_BRDF] = 0.0; //length(weights.m[ID_FUZZ_BRDF] * albedos.m[ID_FUZZ_BRDF]); W_total += probs.m[ID_FUZZ_BRDF];
+    probs.m[ID_COAT_BRDF] = 0.0; //length(weights.m[ID_COAT_BRDF] * albedos.m[ID_COAT_BRDF]); W_total += probs.m[ID_COAT_BRDF];
+    probs.m[ID_META_BRDF] = 0.0; //length(weights.m[ID_META_BRDF] * albedos.m[ID_META_BRDF]); W_total += probs.m[ID_META_BRDF];
     probs.m[ID_SPEC_BRDF] = length(weights.m[ID_SPEC_BRDF] * albedos.m[ID_SPEC_BRDF]); W_total += probs.m[ID_SPEC_BRDF];
     probs.m[ID_SPEC_BTDF] = length(weights.m[ID_SPEC_BTDF] * albedos.m[ID_SPEC_BTDF]); W_total += probs.m[ID_SPEC_BTDF];
-    probs.m[ID_DIFF_BRDF] = length(weights.m[ID_DIFF_BRDF] * albedos.m[ID_DIFF_BRDF]); W_total += probs.m[ID_DIFF_BRDF];
-    probs.m[ID_SSSC_BTDF] = length(weights.m[ID_SSSC_BTDF] * albedos.m[ID_SSSC_BTDF]); W_total += probs.m[ID_SSSC_BTDF];
+    probs.m[ID_DIFF_BRDF] = 0.0; //length(weights.m[ID_DIFF_BRDF] * albedos.m[ID_DIFF_BRDF]); W_total += probs.m[ID_DIFF_BRDF];
+    probs.m[ID_SSSC_BTDF] = 0.0; //length(weights.m[ID_SSSC_BTDF] * albedos.m[ID_SSSC_BTDF]); W_total += probs.m[ID_SSSC_BTDF];
 
     W_total = max(DENOM_TOLERANCE, W_total);
     probs.m[ID_FUZZ_BRDF] /= W_total;
@@ -133,11 +161,11 @@ void openpbr_bsdf_lobe_pdfs(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
                             inout LobePDFs pdfs)
 {
     pdfs.m[ID_FUZZ_BRDF] = 0.0; //fuzz_brdf_pdf(pW, basis, winputL, woutputL);
-    pdfs.m[ID_COAT_BRDF] =     coat_brdf_pdf(pW, basis, winputL, woutputL);
-    pdfs.m[ID_META_BRDF] =    metal_brdf_pdf(pW, basis, winputL, woutputL);
+    pdfs.m[ID_COAT_BRDF] = 0.0; //    coat_brdf_pdf(pW, basis, winputL, woutputL);
+    pdfs.m[ID_META_BRDF] = 0.0; //   metal_brdf_pdf(pW, basis, winputL, woutputL);
     pdfs.m[ID_SPEC_BRDF] = specular_brdf_pdf(pW, basis, winputL, woutputL);
-    pdfs.m[ID_SPEC_BTDF] = 0.0; //specular_btdf_pdf(pW, basis, winputL, woutputL);
-    pdfs.m[ID_DIFF_BRDF] =  diffuse_brdf_pdf(pW, basis, winputL, woutputL);
+    pdfs.m[ID_SPEC_BTDF] = specular_btdf_pdf(pW, basis, winputL, woutputL);
+    pdfs.m[ID_DIFF_BRDF] = 0.0; // diffuse_brdf_pdf(pW, basis, winputL, woutputL);
     pdfs.m[ID_SSSC_BTDF] = 0.0; //subsurface_btdf_pdf(pW, basis, winputL, woutputL);
 }
 
@@ -145,13 +173,13 @@ float openpbr_bsdf_total_pdf(in LobeProbabilities probs, in LobePDFs pdfs)
 {
     // Compute total PDF of sampled output direction (according to 1-sample MIS)
     float pdf_woutputL = 0.0;
-    pdf_woutputL += probs.m[ID_FUZZ_BRDF] * pdfs.m[ID_FUZZ_BRDF];
-    pdf_woutputL += probs.m[ID_COAT_BRDF] * pdfs.m[ID_COAT_BRDF];
-    pdf_woutputL += probs.m[ID_META_BRDF] * pdfs.m[ID_META_BRDF];
+    //pdf_woutputL += probs.m[ID_FUZZ_BRDF] * pdfs.m[ID_FUZZ_BRDF];
+    //pdf_woutputL += probs.m[ID_COAT_BRDF] * pdfs.m[ID_COAT_BRDF];
+    //pdf_woutputL += probs.m[ID_META_BRDF] * pdfs.m[ID_META_BRDF];
     pdf_woutputL += probs.m[ID_SPEC_BRDF] * pdfs.m[ID_SPEC_BRDF];
     pdf_woutputL += probs.m[ID_SPEC_BTDF] * pdfs.m[ID_SPEC_BTDF];
-    pdf_woutputL += probs.m[ID_DIFF_BRDF] * pdfs.m[ID_DIFF_BRDF];
-    pdf_woutputL += probs.m[ID_SSSC_BTDF] * pdfs.m[ID_SSSC_BTDF];
+    //pdf_woutputL += probs.m[ID_DIFF_BRDF] * pdfs.m[ID_DIFF_BRDF];
+    //pdf_woutputL += probs.m[ID_SSSC_BTDF] * pdfs.m[ID_SSSC_BTDF];
     return pdf_woutputL;
 }
 
@@ -178,11 +206,11 @@ vec3 openpbr_bsdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
         {
             // Sample this lobe for the output direction woutputL
             if      (lobe_id==ID_FUZZ_BRDF) {   /*fuzz_brdf_sample(pW, basis, winputL, woutputL, pdf_tmp, rndSeed);*/ }
-            else if (lobe_id==ID_COAT_BRDF) {     coat_brdf_sample(pW, basis, winputL, woutputL, pdf_tmp, rndSeed);   }
-            else if (lobe_id==ID_META_BRDF) {    metal_brdf_sample(pW, basis, winputL, woutputL, pdf_tmp, rndSeed);   }
+            else if (lobe_id==ID_COAT_BRDF) {   /*coat_brdf_sample(pW, basis, winputL, woutputL, pdf_tmp, rndSeed);*/ }
+            else if (lobe_id==ID_META_BRDF) { /* metal_brdf_sample(pW, basis, winputL, woutputL, pdf_tmp, rndSeed);*/ }
             else if (lobe_id==ID_SPEC_BRDF) { specular_brdf_sample(pW, basis, winputL, woutputL, pdf_tmp, rndSeed);   }
-            else if (lobe_id==ID_SPEC_BTDF) {   /*spec_btdf_sample(pW, basis, winputL, woutputL, pdf_tmp, rndSeed);*/ }
-            else if (lobe_id==ID_DIFF_BRDF) {  diffuse_brdf_sample(pW, basis, winputL, woutputL, pdf_tmp, rndSeed);   }
+            else if (lobe_id==ID_SPEC_BTDF) { specular_btdf_sample(pW, basis, winputL, woutputL, pdf_tmp, rndSeed);   }
+            else if (lobe_id==ID_DIFF_BRDF) {/*diffuse_brdf_sample(pW, basis, winputL, woutputL, pdf_tmp, rndSeed);*/ }
             else                            {    /*sss_btdf_sample(pW, basis, winputL, woutputL, pdf_tmp, rndSeed);*/ }
 
             // Evaluate PDF of all lobes at the sampled woutputL

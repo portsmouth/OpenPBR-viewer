@@ -16,6 +16,7 @@ import glsl_main            from './glsl/main.glsl?raw'
 import glsl_coat_brdf       from './glsl/coat_brdf.glsl?raw'
 import glsl_metal_brdf      from './glsl/metal_brdf.glsl?raw'
 import glsl_specular_brdf   from './glsl/specular_brdf.glsl?raw'
+import glsl_specular_btdf   from './glsl/specular_btdf.glsl?raw'
 import glsl_diffuse_brdf    from './glsl/diffuse_brdf.glsl?raw'
 import glsl_openpbr_surface from './glsl/openpbr_surface.glsl?raw'
 import glsl_pathtracer      from './glsl/pathtracer.glsl?raw'
@@ -65,14 +66,14 @@ class MeshLoader
 
 const params = 
 {
-	smoothNormals: true,
-    bounces: 2,
+	smoothNormals: false, //true,
+    bounces: 8,
 
     //////////////////////////////////////////////////////
     // OpenPBR surface params
     //////////////////////////////////////////////////////
 
-    base_weight:                         1.0,
+    base_weight:                         0.0,
     base_color:                          [0.8, 0.8, 0.8],
     base_roughness:                      0.0,
     base_metalness:                      0.0,
@@ -85,7 +86,7 @@ const params =
     specular_ior:                        1.5,
     specular_ior_level:                  0.5,
                
-    transmission_weight:                 0.0,
+    transmission_weight:                 1.0, //0.0,
     transmission_color:                  [1.0, 1.0, 1.0],
     transmission_depth:                  0.0,
     transmission_scatter:                [0.0, 0.0, 0.0],
@@ -183,8 +184,8 @@ function init()
         
         defines: 
         {
-            SMOOTH_NORMALS: 1,
-            BOUNCES: 2,
+            SMOOTH_NORMALS: 0,
+            BOUNCES: params.bounces,
         },
 
         uniforms: 
@@ -213,46 +214,46 @@ function init()
             // material
             //////////////////////////////////////////////////////
 
-            base_weight:                         { value: 1.0 },
+            base_weight:                         { value: params.base_weight },
             base_color:                          { value: new THREE.Vector3(0.8, 0.8, 0.8) },
-            base_roughness:                      { value: 0.0, },
-            base_metalness:                      { value: 0.0, },
+            base_roughness:                      { value: params.base_roughness },
+            base_metalness:                      { value: params.base_metalness },
               
-            specular_weight:                     { value: 1.0, },
+            specular_weight:                     { value: params.specular_weight, },
             specular_color:                      { value: new THREE.Vector3(1.0, 1.0, 1.0) },
-            specular_roughness:                  { value: 0.3, },
-            specular_anisotropy:                 { value: 0.0, },
-            specular_rotation:                   { value: 0.0, },
-            specular_ior:                        { value: 1.5  },
+            specular_roughness:                  { value: params.specular_roughness },
+            specular_anisotropy:                 { value: 0.0 },
+            specular_rotation:                   { value: 0.0 },
+            specular_ior:                        { value: params.specular_ior  },
             specular_ior_level:                  { value: 0.5  },
 
-            transmission_weight:                 { value: 0.0, },
+            transmission_weight:                 { value: params.transmission_weight, },
             transmission_color:                  { value: new THREE.Vector3(1.0, 1.0, 1.0) },
-            transmission_depth:                  { value: 0.0, },
+            transmission_depth:                  { value: 0.0 },
             transmission_scatter:                { value: new THREE.Vector3(0.0, 0.0, 0.0) },
-            transmission_scatter_anisotropy:     { value: 0.0, },
-            transmission_dispersion_abbe_number: { value: 20.0, },
-            transmission_dispersion_scale:       { value: 0.0, },
+            transmission_scatter_anisotropy:     { value: 0.0 },
+            transmission_dispersion_abbe_number: { value: 20.0 },
+            transmission_dispersion_scale:       { value: 0.0 },
          
-            subsurface_weight:                   { value: 0.0, },
+            subsurface_weight:                   { value: 0.0 },
             subsurface_color:                    { value: new THREE.Vector3(0.8, 0.8, 0.8) },
-            subsurface_radius:                   { value: 1.0, },
+            subsurface_radius:                   { value: 1.0 },
             subsurface_radius_scale:             { value: new THREE.Vector3(1.0, 0.5, 0.25) },
-            subsurface_anisotropy:               { value: 0.0, },
+            subsurface_anisotropy:               { value: 0.0 },
 
-            coat_weight:                         { value: 0.0, },
+            coat_weight:                         { value: 0.0 },
             coat_color:                          { value: new THREE.Vector3(1.0, 1.0, 1.0) },
-            coat_roughness:                      { value: 0.0, },
-            coat_anisotropy:                     { value: 0.0, },
-            coat_rotation:                       { value: 0.0, },
+            coat_roughness:                      { value: 0.0 },
+            coat_anisotropy:                     { value: 0.0 },
+            coat_rotation:                       { value: 0.0 },
             coat_ior:                            { value: 1.6  },
             coat_ior_level:                      { value: 0.5  },
               
-            fuzz_weight:                         { value: 0.0, },
+            fuzz_weight:                         { value: 0.0 },
             fuzz_color:                          { value: new THREE.Vector3(1.0, 1.0, 1.0) },
-            fuzz_roughness:                      { value: 0.5, },
+            fuzz_roughness:                      { value: 0.5 },
 
-            geometry_opacity:                    { value: 1.0, },
+            geometry_opacity:                    { value: 1.0 },
             geometry_thin_walled:                { value: false }
         },
 
@@ -275,6 +276,7 @@ function init()
                         + glsl_main   
                         + glsl_coat_brdf      
                         + glsl_specular_brdf
+                        + glsl_specular_btdf
                         + glsl_metal_brdf 
                         + glsl_diffuse_brdf   
                         + glsl_openpbr_surface
@@ -362,7 +364,7 @@ function setup(rtMaterial)
     let d = center.clone(); d.sub(corner);
     d.normalize();
     let pnew = center.clone();
-    pnew.addScaledVector(d, -1.0*scale);
+    pnew.addScaledVector(d, -2.0*scale);
     camera.position.copy(pnew);
     orbitControls.target.copy(center);
     orbitControls.update();
@@ -394,7 +396,7 @@ function setup(rtMaterial)
                                                         resetSamples();
                                                       });
 
-	gui.add( params, 'bounces', 1, 10, 1 ).onChange( v => {
+	gui.add( params, 'bounces', 1, 16, 1 ).onChange( v => {
                                                              rtMaterial.defines.BOUNCES = parseInt( v );
                                                              rtMaterial.needsUpdate = true;
                                                              resetSamples();
@@ -502,7 +504,7 @@ function render()
 
     renderer.domElement.style.imageRendering = 'auto';
 
-    const MAX_SAMPLES = 2048;
+    const MAX_SAMPLES = 512;
     if (samples >= MAX_SAMPLES)
         return;
 
@@ -545,19 +547,19 @@ function render()
         uniforms.specular_ior.value                           = params.specular_ior;
         uniforms.specular_ior_level.value                     = params.specular_ior_level;
     
-        uniforms.transmission_weight                          = params.transmission_weight;        
-        uniforms.transmission_color.value.copy(get_vector3(     params.transmission_color));  
-        uniforms.transmission_depth                           = params.transmission_depth;        
-        uniforms.transmission_scatter.value.copy(get_vector3(   params.transmission_scatter));     
-        uniforms.transmission_scatter_anisotropy              = params.transmission_scatter_anisotropy;        
-        uniforms.transmission_dispersion_abbe_number          = params.transmission_dispersion_abbe_number;        
-        uniforms.transmission_dispersion_scale                = params.transmission_dispersion_scale;        
+        uniforms.transmission_weight.value                    = params.transmission_weight;
+        uniforms.transmission_color.value.copy(get_vector3(     params.transmission_color));
+        uniforms.transmission_depth.value                     = params.transmission_depth;
+        uniforms.transmission_scatter.value.copy(get_vector3(   params.transmission_scatter));
+        uniforms.transmission_scatter_anisotropy.value        = params.transmission_scatter_anisotropy;
+        uniforms.transmission_dispersion_abbe_number.value    = params.transmission_dispersion_abbe_number;
+        uniforms.transmission_dispersion_scale.value          = params.transmission_dispersion_scale;
  
-        uniforms.subsurface_weight                            = params.subsurface_weight;    
-        uniforms.subsurface_color.value.copy(get_vector3(       params.subsurface_color));  
-        uniforms.subsurface_radius                            = params.subsurface_radius; 
-        uniforms.subsurface_radius_scale.value.copy(get_vector3(params.subsurface_radius_scale));  
-        uniforms.subsurface_anisotropy                        = params.subsurface_anisotropy;    
+        uniforms.subsurface_weight.value                      = params.subsurface_weight;
+        uniforms.subsurface_color.value.copy(get_vector3(       params.subsurface_color));
+        uniforms.subsurface_radius.value                      = params.subsurface_radius;
+        uniforms.subsurface_radius_scale.value.copy(get_vector3(params.subsurface_radius_scale));
+        uniforms.subsurface_anisotropy.value                  = params.subsurface_anisotropy;
 
         uniforms.coat_weight.value                            = params.coat_weight;
         uniforms.coat_color.value.copy(get_vector3(             params.coat_color));
@@ -567,9 +569,9 @@ function render()
         uniforms.coat_ior.value                               = params.coat_ior;
         uniforms.coat_ior_level.value                         = params.coat_ior_level;
 
-        uniforms.fuzz_weight                                  = params.fuzz_weight;
-        uniforms.fuzz_color.value.copy(get_vector3(             params.fuzz_color));  
-        uniforms.fuzz_roughness                               = params.fuzz_roughness;
+        uniforms.fuzz_weight.value                            = params.fuzz_weight;
+        uniforms.fuzz_color.value.copy(get_vector3(             params.fuzz_color));
+        uniforms.fuzz_roughness.value                         = params.fuzz_roughness;
 
         uniforms.geometry_opacity.value                       = params.geometry_opacity;
         uniforms.geometry_thin_walled.value                   = params.geometry_thin_walled;
