@@ -6,6 +6,9 @@
 vec3 specular_btdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
                             inout int rndSeed)
 {
+    if (winputL.z == 0.0 || woutputL.z == 0.0)
+        return vec3(0.0);
+
     bool reflected = woutputL.z * winputL.z > 0.0;
     if (reflected)
         return vec3(0.0);
@@ -31,12 +34,19 @@ vec3 specular_btdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
     if (abs(eta_ti - 1.0) < 1.0e-4)
     {
         // degenerate case of index-matched interface, BTDF is a delta-function
-        return vec3(0.0);
+        return tint / (PDF_EPSILON * abs(woutputL.z));
     }
 
     // Compute the micronormal mR in the local (rotated) frame, that refracts -woutputR to winputR
-    vec3 mR = safe_normalize(beamIncidentR - eta_ti*beamOutgoingR);
+    vec3 mR = beamIncidentR - eta_ti*beamOutgoingR;
+    if (dot(mR, mR) == 0.0)
+        return vec3(0.0);
+    mR = safe_normalize(mR);
     if (mR.z <= 0.0) mR *= -1.0; // orient the micronormal into the positive hemisphere
+
+   // Discard backfacing microfacets
+    if (dot(mR, winputR) * winputR.z < 0.0 || dot(mR, woutputR) * woutputR.z < 0.0)
+        return vec3(0.0);
 
     // Compute Jacobian of the half-direction mapping
     float im = dot(-beamIncidentR, mR);
@@ -132,7 +142,7 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
     float G1 = ggx_G1(winputR, mR, alpha_x, alpha_y);
-    float DV = D * G1 * abs(dot(winputR, mR)) / max(DENOM_TOLERANCE, abs(winputR.z));
+    float DV = D * G1 * max(0.0, dot(winputR, mR)) / max(DENOM_TOLERANCE, abs(winputR.z));
 
     // Thus compute PDF of woutputL sample
     pdf_woutputL = DV * dwh_dwo;
@@ -150,6 +160,9 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
 
 float specular_btdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL)
 {
+    if (winputL.z == 0.0 || woutputL.z == 0.0)
+        return 0.0;
+
     bool reflected = woutputL.z * winputL.z > 0.0;
     if (reflected)
         return PDF_EPSILON;
@@ -174,8 +187,15 @@ float specular_btdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
     }
 
     // Compute the micronormal mR in the local (rotated) frame, that refracts -woutputR to winputR
-    vec3 mR = safe_normalize(beamIncidentR - eta_ti*beamOutgoingR);
+    vec3 mR = beamIncidentR - eta_ti*beamOutgoingR;
+    if (dot(mR, mR) == 0.0)
+        return 0.0;
+    mR = safe_normalize(mR);
     if (mR.z <= 0.0) mR *= -1.0; // orient the half-vector in the positive hemisphere
+
+   // Discard backfacing microfacets
+    if (dot(mR, winputR) * winputR.z < 0.0 || dot(mR, woutputR) * woutputR.z < 0.0)
+        return 0.0;
 
     // Compute Jacobian of the half-direction mapping
     float im = dot(-beamIncidentR, mR);
@@ -192,7 +212,7 @@ float specular_btdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
     float G1 = ggx_G1(winputR, mR, alpha_x, alpha_y);
-    float DV = D * G1 * abs(dot(winputR, mR)) / max(DENOM_TOLERANCE, abs(winputR.z));
+    float DV = D * G1 * max(0.0, dot(winputR, mR)) / max(DENOM_TOLERANCE, abs(winputR.z));
 
     // Thus compute PDF of woutputL sample
     float pdf_woutputL = DV * dwh_dwo;
