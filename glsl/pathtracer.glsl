@@ -14,19 +14,7 @@ vec3 normalToTangent(in vec3 N)
     return T;
 }
 
-
-vec2 sphIntersect( in vec3 ro, in vec3 rd, in vec3 ce, float ra )
-{
-    vec3 oc = ro - ce;
-    float b = dot( oc, rd );
-    float c = dot( oc, oc ) - ra*ra;
-    float h = b*b - c;
-    if( h<0.0 ) return vec2(-1.0); // no intersection
-    h = sqrt( h );
-    return vec2( -b-h, -b+h );
-}
-
-
+#if SURFACE_IS_SHADERCUBE
 vec2 boxIntersection( in vec3 ro, in vec3 rd, vec3 boxSize, out vec3 outNormal )
 {
     vec3 m = 1.0/rd; // can precompute if traversing a set of aligned boxes
@@ -42,61 +30,58 @@ vec2 boxIntersection( in vec3 ro, in vec3 rd, vec3 boxSize, out vec3 outNormal )
     outNormal *= -sign(rd);
     return vec2( tN, tF );
 }
-
-
-bool intersect_primitive(in vec3 rayOrigin, in vec3 rayDir, inout vec3 normal, inout float dist)
+bool intersect_shadercube(in vec3 rayOrigin, in vec3 rayDir, inout vec3 normal, inout float dist)
 {
-    vec3 C = vec3(0,4.5,0);
-    float R = 6.0;
-
-    //vec2 X = sphIntersect(rayOrigin, rayDir, C, R);
-    //if (X.x < 0.0)
-    //    return false;
-    //dist = X.x;
-    //vec3 P = rayOrigin + dist*rayDir;
-    //normal = normalize(P - C);
-
-    vec2 X = boxIntersection(rayOrigin, rayDir, vec3(5.0, 4.0, 3.0), normal);
+    vec2 X = boxIntersection(rayOrigin-vec3(0.0, 4.0, 0.0), rayDir, vec3(3.5, 3.5, 3.5), normal);
     if (X.x < 0.0)
         return false;
     dist = X.x;
     return true;
 }
+#endif
 
 bool trace(in vec3 rayOrigin, in vec3 rayDir,
             out vec3 P, out vec3 Ns, out vec3 Ng, out vec3 Ts, out vec3 baryCoord, out int material)
 {
     // hit results
-    uvec4 faceIndices_shell = uvec4( 0u );
-    vec3   faceNormal_shell = vec3( 0.0, 0.0, 1.0 );
-    vec3    barycoord_shell = vec3( 0.0 );
-    float        side_shell = 1.0;
-    float        dist_shell = HUGE_DIST;
-    bool hit_shell = bvhIntersectFirstHit( bvh_shell, rayOrigin, rayDir, 
-                                           faceIndices_shell, faceNormal_shell, barycoord_shell, side_shell, dist_shell );
-    //bool hit_shell = intersect_primitive(rayOrigin, rayDir, faceNormal_shell, dist_shell);
-    
-    uvec4 faceIndices_scene = uvec4( 0u );
-    vec3   faceNormal_scene = vec3( 0.0, 0.0, 1.0 );
-    vec3    barycoord_scene = vec3( 0.0 );
-    float        side_scene = 1.0;
-    float        dist_scene = HUGE_DIST;
-    bool hit_scene = bvhIntersectFirstHit( bvh_scene, rayOrigin, rayDir, 
-                                            faceIndices_scene, faceNormal_scene, barycoord_scene, side_scene, dist_scene );
+    uvec4 faceIndices_surface = uvec4( 0u );
+    vec3   faceNormal_surface = vec3( 0.0, 0.0, 1.0 );
+    vec3    barycoord_surface = vec3( 0.0 );
+    float        side_surface = 1.0;
+    float        dist_surface = HUGE_DIST;
 
-    bool hit = hit_shell || hit_scene;
+#if SURFACE_IS_SHADERCUBE
+    bool hit_surface = intersect_shadercube(rayOrigin, rayDir, faceNormal_surface, dist_surface);
+#else
+    bool hit_surface = bvhIntersectFirstHit( bvh_surface, rayOrigin, rayDir,
+                                             faceIndices_surface, faceNormal_surface, barycoord_surface, side_surface, dist_surface );
+#endif
+
+    uvec4 faceIndices_props = uvec4( 0u );
+    vec3   faceNormal_props = vec3( 0.0, 0.0, 1.0 );
+    vec3    barycoord_props = vec3( 0.0 );
+    float        side_props = 1.0;
+    float        dist_props = HUGE_DIST;
+    bool hit_props = bvhIntersectFirstHit( bvh_props, rayOrigin, rayDir,
+                                           faceIndices_props, faceNormal_props, barycoord_props, side_props, dist_props );
+
+    bool hit = hit_surface || hit_props;
     if (!hit)
         return false;
 
-    if (hit_shell && (!hit_scene || (dist_shell <= dist_scene)))
+    if (hit_surface && (!hit_props || (dist_surface <= dist_props)))
     {
-        P = rayOrigin + dist_shell*rayDir;
-        material = SHELL_MATERIAL;
-        baryCoord = barycoord_shell;
-        Ng = safe_normalize(faceNormal_shell);
-    if (has_normals_shell)
+        P = rayOrigin + dist_surface*rayDir;
+        material = MATERIAL_OPENPBR;
+        baryCoord = barycoord_surface;
+        Ng = safe_normalize(faceNormal_surface);
+#if SURFACE_IS_SHADERCUBE
+        Ns = Ng;
+        Ts = normalToTangent(Ns);
+#else
+        if (has_normals_surface)
         {
-            Ns = textureSampleBarycoord(normalAttribute_shell, barycoord_shell, faceIndices_shell.xyz).xyz;
+            Ns = textureSampleBarycoord(normalAttribute_surface, barycoord_surface, faceIndices_surface.xyz).xyz;
             const bool flip_normals = false;
             if (flip_normals)
                 Ns *= -1.0;
@@ -104,27 +89,36 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir,
         }
         else
             Ns = Ng;
-        if (has_tangents_shell) Ts = textureSampleBarycoord(tangentAttribute_shell, barycoord_shell, faceIndices_shell.xyz).xyz;
-        else                    Ts = normalToTangent(Ns);
+        //if (has_tangents_surface) Ts = textureSampleBarycoord(tangentAttribute_surface, barycoord_surface, faceIndices_surface.xyz).xyz;
+        //else
+            Ts = normalToTangent(Ns);
+#endif
     }
-    else if (hit_scene)
+
+    else if (hit_props)
     {
-        P = rayOrigin + dist_scene*rayDir;
-        material = SCENE_MATERIAL;
-        baryCoord = barycoord_scene;
-        Ng = safe_normalize(faceNormal_scene);
-        if (has_normals_scene)
+        P = rayOrigin + dist_props*rayDir;
+        material = MATERIAL_PROPS;
+        baryCoord = barycoord_props;
+        Ng = safe_normalize(faceNormal_props);
+#if SURFACE_IS_SHADERCUBE
+        Ns = Ng;
+        Ts = normalToTangent(Ns);
+#else
+        if (has_normals_props)
         {
             const bool flip_normals = false;
             if (flip_normals)
                 Ns *= -1.0;
-            Ns = textureSampleBarycoord(normalAttribute_scene, barycoord_scene, faceIndices_scene.xyz).xyz;
+            Ns = textureSampleBarycoord(normalAttribute_props, barycoord_props, faceIndices_props.xyz).xyz;
             if (dot(Ns, Ng) < 0.0) Ns *= -1.0; // align geometric normal into same hemisphere as shading normal, if supplied
         }
         else
             Ns = Ng;
-        if (has_tangents_scene) Ts = textureSampleBarycoord(tangentAttribute_scene, barycoord_scene, faceIndices_scene.xyz).xyz;
-        else                    Ts = normalToTangent(Ns);
+        //if (has_tangents_scene) Ts = textureSampleBarycoord(tangentAttribute_props, barycoord_props, faceIndices_props.xyz).xyz;
+        //else
+            Ts = normalToTangent(Ns);
+#endif
     }                
     return true;
 }
@@ -138,7 +132,7 @@ float TraceShadow(in vec3 rayOrigin, in vec3 rayDir)
         int material;
         vec3 pW_hit, nsW_hit, ngW_hit, TsW_hit, baryCoord;
         bool hit = trace(rayOrigin, rayDir, 
-                            pW_hit, nsW_hit, ngW_hit, TsW_hit, baryCoord, material);
+                         pW_hit, nsW_hit, ngW_hit, TsW_hit, baryCoord, material);
         if (hit)
         {
             return 0.0;
@@ -146,8 +140,8 @@ float TraceShadow(in vec3 rayOrigin, in vec3 rayDir)
             float opacity;
             if (geometry_thin_walled) opacity = geometry_opacity;
             else                      opacity = 1.0;
-            if (material == SHELL_MATERIAL) Transmittance *= 1.0 - opacity;
-            else                            Transmittance = 0.0;
+            if (material == MATERIAL_OPENPBR) Transmittance *= 1.0 - opacity;
+            else                              Transmittance = 0.0;
             if (Transmittance > TRANSMITTANCE_EPSILON)
                 rayOrigin = pW_hit + ngW_hit * sign(dot(rayDir, ngW_hit)) * RAY_OFFSET;
             */
@@ -195,22 +189,22 @@ float grey_brdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutput
 vec3 evaluateBsdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL, in int material, 
                     inout int rndSeed)
 {
-    if (material == SHELL_MATERIAL) return openpbr_bsdf_evaluate(pW, basis, winputL, woutputL, rndSeed);
-    else                            return    grey_brdf_evaluate(pW, basis, winputL, woutputL);
+    if (material == MATERIAL_OPENPBR) return openpbr_bsdf_evaluate(pW, basis, winputL, woutputL, rndSeed);
+    else                              return    grey_brdf_evaluate(pW, basis, winputL, woutputL);
 }
 
 vec3 sampleBsdf(in vec3 pW, in Basis basis, in vec3 winputL, in int material,
                 out vec3 woutputL, out float pdfOut, inout int rndSeed)
 {
-    if (material == SHELL_MATERIAL) return openpbr_bsdf_sample(pW, basis, winputL, woutputL, pdfOut, rndSeed);
-    else                            return    grey_brdf_sample(pW, basis, winputL, woutputL, pdfOut, rndSeed);
+    if (material == MATERIAL_OPENPBR) return openpbr_bsdf_sample(pW, basis, winputL, woutputL, pdfOut, rndSeed);
+    else                              return    grey_brdf_sample(pW, basis, winputL, woutputL, pdfOut, rndSeed);
 }
 
 float pdfBsdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL, in int material,
                 inout int rndSeed)
 {
-    if (material == SHELL_MATERIAL) return openpbr_bsdf_pdf(pW, basis, winputL, woutputL, rndSeed);
-    else                            return    grey_brdf_pdf(pW, basis, winputL, woutputL);
+    if (material == MATERIAL_OPENPBR) return openpbr_bsdf_pdf(pW, basis, winputL, woutputL, rndSeed);
+    else                              return    grey_brdf_pdf(pW, basis, winputL, woutputL);
 }
 
 
@@ -362,13 +356,13 @@ void main()
         #endif
         vec3 winputW = -rayDir; // winputW, points *towards* the incident direction (parallel to photon)
         vec3 winputL = worldToLocal(winputW, basis);
-        vec3 woutputL; // woutputL, points *towards* the outgoing ray direction (opposite to photon)
 
-        // Prepare OpenPBR if required at the current vertex
-        if (material == SHELL_MATERIAL)
+        // Prepare OpenPBR if that material is used at the current vertex
+        if (material == MATERIAL_OPENPBR)
             openpbr_prepare(pW, basis, winputL, rndSeed);
 
-        // Sample BSDF for the next bounce direction
+        // Sample BSDF for the next ray direction
+        vec3 woutputL; // points *towards* the outgoing ray direction (opposite to photon)
         float bsdfPdf;
         vec3 f = sampleBsdf(pW, basis, winputL, material, woutputL, bsdfPdf, rndSeed);
         vec3 woutputW = localToWorld(woutputL, basis);

@@ -15,7 +15,7 @@ void coat_ndf_roughnesses(out float alpha_x, out float alpha_y)
 }
 
 vec3 coat_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
-                            inout int rndSeed)
+                        inout int rndSeed)
 {
     bool transmitted = woutputL.z * winputL.z < 0.0;
     if (transmitted)
