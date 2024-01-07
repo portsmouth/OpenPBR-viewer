@@ -85,9 +85,9 @@ const float DENOM_TOLERANCE       = 1.0e-20;
 const float RADIANCE_EPSILON      = 1.0e-12;
 const float TRANSMITTANCE_EPSILON = 1.0e-4;
 const float THROUGHPUT_EPSILON    = 1.0e-6;
-const float PDF_EPSILON           = 1.0e-20;
+const float PDF_EPSILON           = 1.0e-6;
 const float IOR_EPSILON           = 1.0e-5;
-const float FLT_EPSILON           = 1.2e-7;
+const float FLT_EPSILON           = 1.1920929e-7;
 
 // material indices
 const int SCENE_MATERIAL = 0;

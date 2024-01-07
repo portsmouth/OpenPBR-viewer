@@ -9,6 +9,9 @@ void coat_ndf_roughnesses(out float alpha_x, out float alpha_y)
     float rsqr = sqr(coat_roughness);
     alpha_x = rsqr * sqrt(2.0/(1.0 + sqr(1.0 - coat_anisotropy)));
     alpha_y = (1.0 - coat_anisotropy) * alpha_x;
+    const float min_alpha = 1.0e-4;
+    alpha_x = max(min_alpha, alpha_x);
+    alpha_y = max(min_alpha, alpha_y);
 }
 
 vec3 coat_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
@@ -34,14 +37,14 @@ vec3 coat_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
         return vec3(0.0);
     }
 
+    // Compute the NDF roughnesses in the rotated frame
+    float alpha_x, alpha_y;
+    coat_ndf_roughnesses(alpha_x, alpha_y);
+
     // Construct basis such that x, y are aligned with the T, B in the local, rotated frame
     LocalFrameRotation rotation = getLocalFrameRotation(PI2*coat_rotation);
     vec3 winputR  = localToRotated(winputL,  rotation);
     vec3 woutputR = localToRotated(woutputL, rotation);
-
-    // Compute the NDF roughnesses in the rotated frame
-    float alpha_x, alpha_y;
-    coat_ndf_roughnesses(alpha_x, alpha_y);
 
     // Compute the micronormal mR in the local (rotated) frame, from the reflection half-vector
     vec3 mR = normalize(woutputR + winputR);
@@ -65,24 +68,24 @@ vec3 coat_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
     bool external_reflection = (beamOutgoingL.z > 0.0);
 
     // Compute IOR ratio at interface:
-    //  eta_ti = (IOR in hemi. of transmitted photon) / (IOR in hemi. of incident photon)
+    //  eta_ti_refl = (IOR in hemi. opposite to reflection) / (IOR in hemi. of reflection)
     float n_exterior = 1.0;
     float n_interior = coat_ior;
-    float eta_ti = external_reflection ? n_interior/n_exterior : n_exterior/n_interior;
-    if (abs(eta_ti - 1.0) < IOR_EPSILON)
+    float eta_ti_refl = external_reflection ? n_interior/n_exterior : n_exterior/n_interior;
+    if (abs(eta_ti_refl - 1.0) < IOR_EPSILON)
     {
-        // degenerate case of index-matched interface, BRDF goes to zero
+        // degenerate limit case of index-matched interface, BRDF goes to zero
         pdf_woutputL = 1.0;
         return vec3(0.0);
     }
 
-    // Construct basis such that x, y are aligned with the T, B in the rotated frame
-    LocalFrameRotation rotation = getLocalFrameRotation(PI2*coat_rotation);
-    vec3 winputR = localToRotated(winputL, rotation);
-
     // Compute the NDF roughnesses in the rotated frame
     float alpha_x, alpha_y;
     coat_ndf_roughnesses(alpha_x, alpha_y);
+
+    // Construct basis such that x, y are aligned with the T, B in the rotated frame
+    LocalFrameRotation rotation = getLocalFrameRotation(PI2*coat_rotation);
+    vec3 winputR = localToRotated(winputL, rotation);
 
     // Sample local microfacet normal mR, according to Heitz "Sampling the GGX Distribution of Visible Normals"
     vec3 mR = ggx_ndf_sample(winputR, alpha_x, alpha_y, rndSeed);
@@ -104,10 +107,11 @@ vec3 coat_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
     pdf_woutputL = DV * dwh_dwo;
 
     // Compute Fresnel factor for the dielectric reflection
-    float F = FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti);
+    float F = FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl);
 
     // Thus evaluate BRDF
-    return vec3(F) * D * ggx_G2(winputR, woutputR, alpha_x, alpha_y) / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
+    vec3 f = vec3(F) * D * ggx_G2(winputR, woutputR, alpha_x, alpha_y) / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
+    return f;
 }
 
 float coat_brdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL)
@@ -127,7 +131,7 @@ float coat_brdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutput
     float eta_ti_refl = external_reflection ? n_interior/n_exterior : n_exterior/n_interior;
     if (abs(eta_ti_refl - 1.0) < IOR_EPSILON)
     {
-        // degenerate case of index-matched interface, BRDF goes to zero
+        // degenerate limit case of index-matched interface, BRDF goes to zero
         return 1.0;
     }
 
@@ -158,8 +162,8 @@ vec3 coat_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL,
 {
     float n_exterior = 1.0;
     float n_interior = coat_ior;
-    float eta_ti = n_interior/n_exterior;
-    if (abs(eta_ti - 1.0) < IOR_EPSILON)
+    float eta = n_interior/n_exterior;
+    if (abs(eta - 1.0) < IOR_EPSILON)
     {
         // degenerate case of index-matched interface, BRDF goes to zero
         return vec3(0.0);

@@ -53,14 +53,14 @@ vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
 {
     if (winputL.z < DENOM_TOLERANCE) return vec3(0.0);
 
-    // Construct basis such that x, y are aligned with the T, B in the rotated frame
-    LocalFrameRotation rotation = getLocalFrameRotation(PI2*specular_rotation);
-    vec3 winputR = localToRotated(winputL, rotation);
-
     // Compute the NDF roughnesses in the rotated frame
     // (Note that the metal shares the same NDF as the dielectric/specular base)
     float alpha_x, alpha_y;
     specular_ndf_roughnesses(alpha_x, alpha_y);
+
+    // Construct basis such that x, y are aligned with the T, B in the rotated frame
+    LocalFrameRotation rotation = getLocalFrameRotation(PI2*specular_rotation);
+    vec3 winputR = localToRotated(winputL, rotation);
 
     // Sample local microfacet normal mR, according to Heitz "Sampling the GGX Distribution of Visible Normals"
     vec3 mR = ggx_ndf_sample(winputR, alpha_x, alpha_y, rndSeed);
