@@ -80,11 +80,13 @@ const float RECIPROCAL_PI2        = 0.15915494309189535;
 
 // tolerances
 const float HUGE_DIST             = 1.0e20;
-const float RAY_OFFSET            = 1.0e-3;
-const float DENOM_TOLERANCE       = 5.0e-7;
-const float RADIANCE_EPSILON      = 1.0e-6;
-const float TRANSMITTANCE_EPSILON = 1.0e-3;
-const float PDF_EPSILON           = 1.0e-6;
+const float RAY_OFFSET            = 1.0e-4;
+const float DENOM_TOLERANCE       = 1.0e-20;
+const float RADIANCE_EPSILON      = 1.0e-12;
+const float TRANSMITTANCE_EPSILON = 1.0e-4;
+const float THROUGHPUT_EPSILON    = 1.0e-6;
+const float PDF_EPSILON           = 1.0e-20;
+const float IOR_EPSILON           = 1.0e-5;
 const float FLT_EPSILON           = 1.2e-7;
 
 // material indices
@@ -109,6 +111,11 @@ float maxComponent(in vec3 v)
 float minComponent(in vec3 v)
 {
     return min(v.x, min(v.y, v.z));
+}
+
+float averageComponent(in vec3 v)
+{
+    return (v.x + v.y + v.z)/3.0;
 }
 
 float sqr(float x)              { return x*x; }
@@ -160,7 +167,7 @@ struct Basis
 Basis makeBasis(in vec3 nW, in vec3 baryCoord)
 {
     Basis basis;
-    basis.nW = normalize(nW);
+    basis.nW = safe_normalize(nW);
     if (abs(nW.z) < abs(nW.x))
     {
         basis.tW.x =  basis.nW.z;
@@ -174,7 +181,7 @@ Basis makeBasis(in vec3 nW, in vec3 baryCoord)
         basis.tW.z = -basis.nW.y;
     }
     basis.tW = safe_normalize(basis.tW);
-    basis.bW = cross(nW, basis.tW);
+    basis.bW = safe_normalize(cross(nW, basis.tW));
     basis.baryCoord = baryCoord;
     return basis;
 }
@@ -266,9 +273,8 @@ vec3 sampleHemisphereCosineWeighted(inout int rndSeed, inout float pdf)
     float x = r * cos(theta);
     float y = r * sin(theta);
     float z = sqrt(max(0.0, 1.0 - x*x - y*y));
-    vec3 wiL = vec3(x, y, z);
-    pdf = pdfHemisphereCosineWeighted(wiL);
-    return wiL;
+    pdf = abs(z) / PI;
+    return vec3(x, y, z);
 }
 
 float balanceHeuristic(const float a, const float b)
@@ -298,7 +304,7 @@ bool cutout(in int material, inout int rndSeed)
     return false;
 }
 
-// cosi    = magnitude of the cosine of the incident ray angle to the normal
+// cosi    = magnitude of the cosine of the incident ray angle to the micronormal
 // eta_ti  = ratio et/ei of the transmitted IOR (et) and incident IOR (ei)
 float FresnelDielectricReflectance(in float cosi, in float eta_ti)
 {
@@ -329,25 +335,8 @@ float ggx_ndf_eval(in vec3 m, in float alpha_x, in float alpha_y)
     return 1.0 / max(Ddenom, DENOM_TOLERANCE);
 }
 
-/*
-vec3 ggx_ndf_sample(in vec3 wiL, float alpha_x, float alpha_y, inout int rndSeed)
-{
-    vec3 Vh = normalize(vec3(alpha_x*wiL.x, alpha_y*wiL.y, wiL.z));
-    float lensq = Vh.x*Vh.x + Vh.y*Vh.y;
-    vec3 T1 = lensq > 0.0 ? vec3(-Vh.y, Vh.x, 0.0) * 1.0/max(DENOM_TOLERANCE, sqrt(lensq)) : vec3(1.0, 0.0, 0.0);
-    vec3 T2 = cross(Vh, T1);
-    float r = sqrt(rand(rndSeed));
-    float phi = 2.0 * PI * rand(rndSeed);
-    float t1 = r * cos(phi);
-    float t2 = r * sin(phi);
-    float s = 0.5 * (1.0 + Vh.z);
-    t2 = (1.0 - s)*sqrt(1.0 - t1*t1) + s*t2;
-    vec3 Nh = t1*T1 + t2*T2 + sqrt(max(0.0, 1.0 - t1*t1 - t2*t2))*Vh;
-    vec3 Ne = normalize(vec3(alpha_x*Nh.x, alpha_y*Nh.y, max(0.0, Nh.z)));
-    return Ne;
-}
-*/
-
+// GGX NDF sampling routine, as described in
+//  "Sampling Visible GGX Normals with Spherical Caps", Dupuy et al., HPG 2023
 vec3 ggx_ndf_sample(in vec3 wiL, float alpha_x, float alpha_y, inout int rndSeed)
 {
     vec2 Xi = vec2(rand(rndSeed), rand(rndSeed));
@@ -380,13 +369,12 @@ float ggx_lambda(in vec3 w, float alpha_x, float alpha_y)
     return (-1.0 + sqrt(1.0 + (sqr(alpha_x*w.x) + sqr(alpha_y*w.y))/sqr(w.z))) / 2.0;
 }
 
-// Shadow-masking function
-// Approximation from Walter et al (v = arbitrary direction, m = microfacet normal)
 float ggx_G1(in vec3 w, float alpha_x, float alpha_y)
 {
     return 1.0 / (1.0 + ggx_lambda(w, alpha_x, alpha_y));
 }
 
+// Height-correlated form of GGX shadowing-masking function
 float ggx_G2(in vec3 woL, in vec3 wiL, float alpha_x, float alpha_y)
 {
     return 1.0 / (1.0 + ggx_lambda(woL, alpha_x, alpha_y) + ggx_lambda(wiL,  alpha_x, alpha_y));

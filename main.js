@@ -1,5 +1,8 @@
 
-import * as THREE from 'three';
+import { Vector2, Vector3, Matrix4, Box3,
+         Mesh, MeshBasicMaterial, ShaderMaterial, Scene, PerspectiveCamera,
+         sRGBEncoding, RGBAFormat, FloatType,
+         WebGLRenderer, WebGLRenderTarget } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -52,7 +55,7 @@ class MeshLoader
                         generator.applyWorldTransforms = false;
                         const bvhOptions = { strategy: SAH, maxLeafTris: 1 };
                         let bvh = new MeshBVH( generator.generate(), bvhOptions );
-                        let mesh = new THREE.Mesh(generator.generate(), c.material);
+                        let mesh = new Mesh(generator.generate(), c.material);
                         this.result = {scene:gltf.scene, bvh:bvh, mesh:c};
                         console.log("==> loaded mesh ", path);
                         return this.result;
@@ -66,14 +69,14 @@ class MeshLoader
 
 const params = 
 {
-	smoothNormals: false, //true,
+	smoothNormals: true,
     bounces: 8,
 
     //////////////////////////////////////////////////////
     // OpenPBR surface params
     //////////////////////////////////////////////////////
 
-    base_weight:                         0.0,
+    base_weight:                         1.0,
     base_color:                          [0.8, 0.8, 0.8],
     base_roughness:                      0.0,
     base_metalness:                      0.0,
@@ -86,7 +89,7 @@ const params =
     specular_ior:                        1.5,
     specular_ior_level:                  0.5,
                
-    transmission_weight:                 1.0, //0.0,
+    transmission_weight:                 0.0,
     transmission_color:                  [1.0, 1.0, 1.0],
     transmission_depth:                  0.0,
     transmission_scatter:                [0.0, 0.0, 0.0],
@@ -119,7 +122,6 @@ const params =
 
 let renderer, camera, scene, gui, stats;
 let rtQuad, finalQuad, renderTarget;
-let clock;
 let samples = 0;
 let outputContainer;
 
@@ -146,25 +148,20 @@ function init()
     BVH_SCENE = null;
 
 	// renderer setup
-	renderer = new THREE.WebGLRenderer( { antialias: false } );
+	renderer = new WebGLRenderer( { antialias: false } );
 	renderer.setPixelRatio( window.devicePixelRatio );
 	renderer.setClearColor( 0x09141a );
 	renderer.setSize( window.innerWidth, window.innerHeight );
-	renderer.outputEncoding = THREE.sRGBEncoding;
+	renderer.outputEncoding = sRGBEncoding;
 	document.body.appendChild( renderer.domElement );
 
     outputContainer = document.getElementById( 'output' );
 
 	// scene setup
-	scene = new THREE.Scene();
-
-	const light = new THREE.DirectionalLight( 0xffffff, 1 );
-	light.position.set( 1, 1, 1 );
-	scene.add( light );
-	scene.add( new THREE.AmbientLight( 0xb0bec5, 0.5 ) );
+	scene = new Scene();
 
 	// camera setup
-	camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 50 );
+	camera = new PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 50 );
 	camera.position.set( 4, 4, 4 );
 	camera.far = 100;
 	camera.updateProjectionMatrix();
@@ -173,18 +170,15 @@ function init()
 	stats = new Stats();
 	document.body.appendChild( stats.dom );
 
-    // Timer
-    clock = new THREE.Clock();
-
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // OpenPBR surface params
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    const rtMaterial = new THREE.ShaderMaterial( {
+    const rtMaterial = new ShaderMaterial( {
         
         defines: 
         {
-            SMOOTH_NORMALS: 0,
+            SMOOTH_NORMALS: 1,
             BOUNCES: params.bounces,
         },
 
@@ -202,10 +196,10 @@ function init()
             has_normals_scene:     { value: 1 },
             has_tangents_scene:    { value: 0 },
 
-            cameraWorldMatrix:     { value: new THREE.Matrix4() },
-            invProjectionMatrix:   { value: new THREE.Matrix4() },
-            invModelMatrix:        { value: new THREE.Matrix4() },
-            resolution:            { value: new THREE.Vector2() },
+            cameraWorldMatrix:     { value: new Matrix4() },
+            invProjectionMatrix:   { value: new Matrix4() },
+            invModelMatrix:        { value: new Matrix4() },
+            resolution:            { value: new Vector2() },
 
 			seed:                  { value: 0 },
 			accumulation_weight:   { value: 1 },
@@ -215,12 +209,12 @@ function init()
             //////////////////////////////////////////////////////
 
             base_weight:                         { value: params.base_weight },
-            base_color:                          { value: new THREE.Vector3(0.8, 0.8, 0.8) },
+            base_color:                          { value: new Vector3(0.8, 0.8, 0.8) },
             base_roughness:                      { value: params.base_roughness },
             base_metalness:                      { value: params.base_metalness },
               
             specular_weight:                     { value: params.specular_weight, },
-            specular_color:                      { value: new THREE.Vector3(1.0, 1.0, 1.0) },
+            specular_color:                      { value: new Vector3(1.0, 1.0, 1.0) },
             specular_roughness:                  { value: params.specular_roughness },
             specular_anisotropy:                 { value: 0.0 },
             specular_rotation:                   { value: 0.0 },
@@ -228,21 +222,21 @@ function init()
             specular_ior_level:                  { value: 0.5  },
 
             transmission_weight:                 { value: params.transmission_weight, },
-            transmission_color:                  { value: new THREE.Vector3(1.0, 1.0, 1.0) },
+            transmission_color:                  { value: new Vector3(1.0, 1.0, 1.0) },
             transmission_depth:                  { value: 0.0 },
-            transmission_scatter:                { value: new THREE.Vector3(0.0, 0.0, 0.0) },
+            transmission_scatter:                { value: new Vector3(0.0, 0.0, 0.0) },
             transmission_scatter_anisotropy:     { value: 0.0 },
             transmission_dispersion_abbe_number: { value: 20.0 },
             transmission_dispersion_scale:       { value: 0.0 },
          
             subsurface_weight:                   { value: 0.0 },
-            subsurface_color:                    { value: new THREE.Vector3(0.8, 0.8, 0.8) },
+            subsurface_color:                    { value: new Vector3(0.8, 0.8, 0.8) },
             subsurface_radius:                   { value: 1.0 },
-            subsurface_radius_scale:             { value: new THREE.Vector3(1.0, 0.5, 0.25) },
+            subsurface_radius_scale:             { value: new Vector3(1.0, 0.5, 0.25) },
             subsurface_anisotropy:               { value: 0.0 },
 
             coat_weight:                         { value: 0.0 },
-            coat_color:                          { value: new THREE.Vector3(1.0, 1.0, 1.0) },
+            coat_color:                          { value: new Vector3(1.0, 1.0, 1.0) },
             coat_roughness:                      { value: 0.0 },
             coat_anisotropy:                     { value: 0.0 },
             coat_rotation:                       { value: 0.0 },
@@ -250,7 +244,7 @@ function init()
             coat_ior_level:                      { value: 0.5  },
               
             fuzz_weight:                         { value: 0.0 },
-            fuzz_color:                          { value: new THREE.Vector3(1.0, 1.0, 1.0) },
+            fuzz_color:                          { value: new Vector3(1.0, 1.0, 1.0) },
             fuzz_roughness:                      { value: 0.5 },
 
             geometry_opacity:                    { value: 1.0 },
@@ -350,7 +344,7 @@ function setup(rtMaterial)
 	orbitControls.addEventListener( 'change', () => { resetSamples(); } );
 
 
-    let bounds = new THREE.Box3()
+    let bounds = new Box3()
     bounds.setFromObject(MESH_SHELL);
     let boundsMin = bounds.min;
     let boundsMax = bounds.max;
@@ -359,8 +353,8 @@ function setup(rtMaterial)
                             boundsMax.z-boundsMin.z);
     let o = [boundsMin.x, boundsMin.y, boundsMin.z];
     let e = [boundsMax.x-boundsMin.x, boundsMax.y-boundsMin.y, boundsMax.z-boundsMin.z];
-    let center = new THREE.Vector3(o[0] + 0.5*e[0], o[1] + 0.5*e[1], o[2] + 0.5*e[2]);
-    let corner = new THREE.Vector3(o[0] +    e[0],  o[1] +     e[1], o[2] +     e[2]);
+    let center = new Vector3(o[0] + 0.5*e[0], o[1] + 0.5*e[1], o[2] + 0.5*e[2]);
+    let corner = new Vector3(o[0] +    e[0],  o[1] +     e[1], o[2] +     e[2]);
     let d = center.clone(); d.sub(corner);
     d.normalize();
     let pnew = center.clone();
@@ -378,9 +372,9 @@ function setup(rtMaterial)
 	rtMaterial.transparent = true;
 	rtMaterial.depthWrite = false;
 
-	renderTarget = new THREE.WebGLRenderTarget(1, 1, {format: THREE.RGBAFormat, type: THREE.FloatType});
+	renderTarget = new WebGLRenderTarget(1, 1, {format: RGBAFormat, type: FloatType});
 
-	finalQuad = new FullScreenQuad( new THREE.MeshBasicMaterial({map: renderTarget.texture}) );
+	finalQuad = new FullScreenQuad( new MeshBasicMaterial({map: renderTarget.texture}) );
 
     
 
@@ -412,7 +406,7 @@ function setup(rtMaterial)
     specular_folder.add(params,      'specular_weight', 0.0, 1.0).onChange(                           v => { rtMaterial.needsUpdate = true; resetSamples(); });
     specular_folder.addColor(params, 'specular_color').onChange(                                      v => { rtMaterial.needsUpdate = true; resetSamples(); });
     specular_folder.add(params,      'specular_roughness', 0.0, 1.0).onChange(                        v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    specular_folder.add(params,      'specular_ior', 1.0, 3.0).onChange(                              v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    specular_folder.add(params,      'specular_ior', 1.0, 5.0).onChange(                              v => { rtMaterial.needsUpdate = true; resetSamples(); });
     specular_folder.add(params,      'specular_ior_level', 0.0, 1.0).onChange(                        v => { rtMaterial.needsUpdate = true; resetSamples(); });
     specular_folder.add(params,      'specular_anisotropy', 0.0, 1.0).onChange(                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
     specular_folder.add(params,      'specular_rotation', 0.0, 1.0).onChange(                         v => { rtMaterial.needsUpdate = true; resetSamples(); });
@@ -486,7 +480,7 @@ function resize()
 
 function get_vector3(array3)
 {
-    return new THREE.Vector3(array3[0], array3[1], array3[2]);
+    return new Vector3(array3[0], array3[1], array3[2]);
 }
 
 function render() 
@@ -527,7 +521,7 @@ function render()
 		uniforms.invProjectionMatrix.value.copy( camera.projectionMatrixInverse );
 		uniforms.invModelMatrix.value.copy( scene.matrixWorld ).invert();
 
-        let resolution = new THREE.Vector2(w, h);
+        let resolution = new Vector2(w, h);
         uniforms.resolution.value.copy(resolution);
 
         //////////////////////////////////////////////////////

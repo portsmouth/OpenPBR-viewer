@@ -1,6 +1,6 @@
 
 /////////////////////////////////////////////////////////////////////////
-// trace 
+// Raytracing routines
 /////////////////////////////////////////////////////////////////////////
 
 vec3 normalToTangent(in vec3 N)
@@ -14,6 +14,55 @@ vec3 normalToTangent(in vec3 N)
     return T;
 }
 
+
+vec2 sphIntersect( in vec3 ro, in vec3 rd, in vec3 ce, float ra )
+{
+    vec3 oc = ro - ce;
+    float b = dot( oc, rd );
+    float c = dot( oc, oc ) - ra*ra;
+    float h = b*b - c;
+    if( h<0.0 ) return vec2(-1.0); // no intersection
+    h = sqrt( h );
+    return vec2( -b-h, -b+h );
+}
+
+
+vec2 boxIntersection( in vec3 ro, in vec3 rd, vec3 boxSize, out vec3 outNormal )
+{
+    vec3 m = 1.0/rd; // can precompute if traversing a set of aligned boxes
+    vec3 n = m*ro;   // can precompute if traversing a set of aligned boxes
+    vec3 k = abs(m)*boxSize;
+    vec3 t1 = -n - k;
+    vec3 t2 = -n + k;
+    float tN = max( max( t1.x, t1.y ), t1.z );
+    float tF = min( min( t2.x, t2.y ), t2.z );
+    if( tN>tF || tF<0.0) return vec2(-1.0); // no intersection
+    outNormal = (tN>0.0) ? step(vec3(tN),t1) : // ro ouside the box
+                           step(t2,vec3(tF));  // ro inside the box
+    outNormal *= -sign(rd);
+    return vec2( tN, tF );
+}
+
+
+bool intersect_primitive(in vec3 rayOrigin, in vec3 rayDir, inout vec3 normal, inout float dist)
+{
+    vec3 C = vec3(0,4.5,0);
+    float R = 6.0;
+
+    //vec2 X = sphIntersect(rayOrigin, rayDir, C, R);
+    //if (X.x < 0.0)
+    //    return false;
+    //dist = X.x;
+    //vec3 P = rayOrigin + dist*rayDir;
+    //normal = normalize(P - C);
+
+    vec2 X = boxIntersection(rayOrigin, rayDir, vec3(5.0, 4.0, 3.0), normal);
+    if (X.x < 0.0)
+        return false;
+    dist = X.x;
+    return true;
+}
+
 bool trace(in vec3 rayOrigin, in vec3 rayDir,
             out vec3 P, out vec3 Ns, out vec3 Ng, out vec3 Ts, out vec3 baryCoord, out int material)
 {
@@ -24,7 +73,8 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir,
     float        side_shell = 1.0;
     float        dist_shell = HUGE_DIST;
     bool hit_shell = bvhIntersectFirstHit( bvh_shell, rayOrigin, rayDir, 
-                                            faceIndices_shell, faceNormal_shell, barycoord_shell, side_shell, dist_shell );
+                                           faceIndices_shell, faceNormal_shell, barycoord_shell, side_shell, dist_shell );
+    //bool hit_shell = intersect_primitive(rayOrigin, rayDir, faceNormal_shell, dist_shell);
     
     uvec4 faceIndices_scene = uvec4( 0u );
     vec3   faceNormal_scene = vec3( 0.0, 0.0, 1.0 );
@@ -33,6 +83,7 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir,
     float        dist_scene = HUGE_DIST;
     bool hit_scene = bvhIntersectFirstHit( bvh_scene, rayOrigin, rayDir, 
                                             faceIndices_scene, faceNormal_scene, barycoord_scene, side_scene, dist_scene );
+
     bool hit = hit_shell || hit_scene;
     if (!hit)
         return false;
@@ -43,7 +94,7 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir,
         material = SHELL_MATERIAL;
         baryCoord = barycoord_shell;
         Ng = safe_normalize(faceNormal_shell);
-        if (has_normals_shell)
+    if (has_normals_shell)
         {
             Ns = textureSampleBarycoord(normalAttribute_shell, barycoord_shell, faceIndices_shell.xyz).xyz;
             const bool flip_normals = false;
@@ -81,7 +132,7 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir,
 float TraceShadow(in vec3 rayOrigin, in vec3 rayDir)
 {
     float Transmittance = 1.0;
-    while (Transmittance > TRANSMITTANCE_EPSILON)
+    //while (Transmittance > TRANSMITTANCE_EPSILON)
     {
         int hitMaterial;
         int material;
@@ -90,6 +141,8 @@ float TraceShadow(in vec3 rayOrigin, in vec3 rayDir)
                             pW_hit, nsW_hit, ngW_hit, TsW_hit, baryCoord, material);
         if (hit)
         {
+            return 0.0;
+            /*
             float opacity;
             if (geometry_thin_walled) opacity = geometry_opacity;
             else                      opacity = 1.0;
@@ -97,6 +150,7 @@ float TraceShadow(in vec3 rayOrigin, in vec3 rayDir)
             else                            Transmittance = 0.0;
             if (Transmittance > TRANSMITTANCE_EPSILON)
                 rayOrigin = pW_hit + ngW_hit * sign(dot(rayDir, ngW_hit)) * RAY_OFFSET;
+            */
         }
         else
             return Transmittance;
@@ -167,7 +221,7 @@ float pdfBsdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL, in 
 vec3 environmentRadiance(in vec3 dir)
 {
     float value = ( dir.y + 0.5 ) / 1.5;
-    vec3 skyColor = mix( vec3( 1.0 ), vec3( 0.65, 0.75, 1.0 ), value );
+    vec3 skyColor = mix(vec3(1.0), vec3(0.25, 0.5, 1.0), value );
     //vec3 skyColor = vec3(1.0);
     return skyColor;
 }
@@ -241,99 +295,105 @@ void main()
     vec3 throughput = vec3(1.0);
     float misWeightSky = 1.0; // For MIS book-keeping
 
-    // Cast camera ray
-    int material;
-    vec3 pW_hit, NsW_hit, NgW_hit, TsW_hit, baryCoord;
-    bool hit = trace(pW, rayDir, 
-                     pW_hit, NsW_hit, NgW_hit, TsW_hit, baryCoord, material);
-    if (!hit)
+    for (int vertex=0; vertex < BOUNCES; vertex++)
     {
-        // Camera ray missed all geometry; add contribution from distant lights and terminate path
-        L += throughput * environmentRadiance(rayDir);
-    }
-    else
-    {
-        for (int vertex=0; vertex < BOUNCES; vertex++)
-        {    
-            // Pass-through surface due to cutout transparency, if enabled
-            if (cutout(material, rndSeed))
-            {
-                pW = pW_hit + rayDir*RAY_OFFSET;
-                hit = trace(pW, rayDir, 
-                            pW_hit, NsW_hit, NgW_hit, TsW_hit, baryCoord, material);
-                if (!hit)
-                {
-                    // This ray missed all geometry; add contribution from distant lights and terminate path
-                    L += throughput * environmentRadiance(rayDir);
-                    break;
-                }
-                continue;
-            }
-        
-            // Deal with the surface interaction at the current vertex.
-            // First, compute the normal and thus the local vertex basis:
-            pW       = pW_hit;
-            vec3 NsW = NsW_hit;
-            vec3 NgW = NgW_hit;
-            vec3 TsW = TsW_hit;
+        if (maxComponent(throughput) < THROUGHPUT_EPSILON)
+            break;
 
-            // Construct shading frame
-            Basis basis;
-            #if SMOOTH_NORMALS
-                // If the surface is opaque, but the incident ray lies below the hemisphere of the normal,
-                // which can occur due to shading normals, apply the "Flipping hack" to prevent artifacts
-                // (see Schüßler, "Microfacet-based Normal Mapping for Robust Monte Carlo Path Tracing")
-                if (dot(NsW, rayDir) > 0.0)
-                    NsW = 2.0*NgW*dot(NgW, NsW) - NsW;
-                basis = makeBasis(NsW, baryCoord);
-            #else
-                basis = makeBasis(NgW, baryCoord);
-            #endif
-
-            vec3 winputW = -rayDir; // winputW, points *towards* the incident ray direction (parallel to photon)
-
-            // Sample BSDF for the next bounce direction
-            vec3 winputL = worldToLocal(winputW, basis);
-            vec3 woutputL; // woutputL, points *towards* the outgoing ray direction (opposite photon)
-            float bsdfPdf;
-            vec3 f = sampleBsdf(pW, basis, winputL, material, woutputL, bsdfPdf, rndSeed);
-            vec3 woutputW = localToWorld(woutputL, basis);
-
-            bool transmitted = (dot(winputW, NgW) * dot(woutputW, NgW) < 0.0);
-            if (transmitted)
-            {
-                inDielectric = !inDielectric;
-            }
-
-            // Update ray direction to the BSDF-sampled direction
-            rayDir = woutputW;
-
-            // Prepare for tracing the direct lighting and continuation rays
-            pW += NgW * sign(dot(rayDir, NgW)) * RAY_OFFSET; // perturb vertex into geometric half-space of scattered ray
-
-            // Add direct lighting term at the current surface vertex
-            float skyPdf = 0.0;
-            if (!inDielectric)
-                L += throughput * directSurfaceLighting(pW, basis, winputW, material, skyPdf, rndSeed);
-
-            // Update path continuation throughput
-            throughput *= f / max(PDF_EPSILON, bsdfPdf) * abs(woutputL.z);
-
-            // TODO: Russian roulette
-            
-            // Raycast to next hit
-            hit = trace(pW, rayDir, 
+        // Raycast along current propagation direction rayDir, from current vertex pW
+        int material;
+        vec3 pW_hit, NsW_hit, NgW_hit, TsW_hit, baryCoord_hit;
+        bool hit = trace(pW, rayDir,
+                         pW_hit, NsW_hit, NgW_hit, TsW_hit, baryCoord_hit, material);
+        /*
+        if (cutout(material, rndSeed))
+        {
+            pW = pW_hit + rayDir*RAY_OFFSET;
+            hit = trace(pW, rayDir,
                         pW_hit, NsW_hit, NgW_hit, TsW_hit, baryCoord, material);
-
-            // If ray misses, add contribution of environment light and terminate pathtrace
             if (!hit)
             {
                 // This ray missed all geometry; add contribution from distant lights and terminate path
-                misWeightSky = balanceHeuristic(bsdfPdf, skyPdf);
-                L += throughput * misWeightSky * environmentRadiance(rayDir);
+                L += throughput * environmentRadiance(rayDir);
                 break;
             }
+            continue;
         }
+        */
+
+        if (!hit)
+        {
+            // Add contribution from distant lights
+            if (misWeightSky > 0.0)
+            {
+                // Camera ray missed all geometry; add contribution from distant lights and terminate path
+                L += throughput * misWeightSky * environmentRadiance(rayDir);
+            }
+
+            // Ray escapes to infinity
+            break;
+        }
+
+        // If the current ray lies inside a dielectric, apply Beer's law for absorption
+        if (inDielectric)
+        {
+            //throughput *= exp(-rayLength*absorption);
+        }
+
+        // Deal with the surface interaction at the current vertex.
+        // First, compute the normal and thus the local vertex basis:
+        pW             = pW_hit;
+        vec3 NsW       = NsW_hit;
+        vec3 NgW       = NgW_hit;
+        vec3 TsW       = TsW_hit;
+        vec3 baryCoord = baryCoord_hit;
+
+        // Construct shading frame
+        Basis basis;
+        #if SMOOTH_NORMALS
+            // If the surface is opaque, but the incident ray lies below the hemisphere of the normal,
+            // which can occur due to shading normals, apply the "Flipping hack" to prevent artifacts
+            // (see Schüßler, "Microfacet-based Normal Mapping for Robust Monte Carlo Path Tracing")
+            if (dot(NsW, rayDir) > 0.0)
+                NsW = 2.0*NgW*dot(NgW, NsW) - NsW;
+            basis = makeBasis(NsW, baryCoord);
+        #else
+            basis = makeBasis(NgW, baryCoord);
+        #endif
+
+        // Sample BSDF for the next bounce direction
+        vec3 winputW = -rayDir; // winputW, points *towards* the incident direction (parallel to photon)
+        vec3 winputL = worldToLocal(winputW, basis);
+        vec3 woutputL; // woutputL, points *towards* the outgoing ray direction (opposite to photon)
+        float bsdfPdf;
+        vec3 f = sampleBsdf(pW, basis, winputL, material, woutputL, bsdfPdf, rndSeed);
+        vec3 woutputW = localToWorld(woutputL, basis);
+
+        bool transmitted = (dot(winputW, NgW) * dot(woutputW, NgW) < 0.0);
+        if (transmitted)
+            inDielectric = !inDielectric; // (assuming for simplicity that the dielectric objects are closed and non-intersecting)
+
+        // Add volumetric emission at the surface point, if present (treating it as an isotropic radiance field)
+        //L += throughput * evaluateEdf(pW, basis, winputL);
+
+        // Update ray direction to the BSDF-sampled direction
+        rayDir = woutputW;
+
+        // Prepare for tracing the direct lighting and continuation rays
+        pW += NgW * sign(dot(rayDir, NgW)) * RAY_OFFSET; // perturb vertex into geometric half-space of scattered ray
+
+        // Add direct lighting term at the current surface vertex
+        float skyPdf = 0.0;
+        //if (!inDielectric)
+        //    L += throughput * directSurfaceLighting(pW, basis, winputW, material, skyPdf, rndSeed);
+
+        // Update path continuation throughput
+        throughput *= f / max(PDF_EPSILON, bsdfPdf) * abs(dot(woutputW, basis.nW));
+
+        //misWeightSky = balanceHeuristic(bsdfPdf, skyPdf); // compute sky MIS weight for bounce ray
+
+        // TODO: Russian roulette
+
     }
 
     gl_FragColor.rgb = L;

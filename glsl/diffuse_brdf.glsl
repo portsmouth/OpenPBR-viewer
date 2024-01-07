@@ -20,6 +20,7 @@ vec3 diffuse_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
 
 float diffuse_brdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL)
 {
+    if (winputL.z < DENOM_TOLERANCE) return PDF_EPSILON;
     return pdfHemisphereCosineWeighted(woutputL);
 }
 

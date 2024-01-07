@@ -129,7 +129,7 @@ vec3 metal_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL,
         float pdf_woutputL;
         vec3 f = metal_brdf_sample(pW, basis, winputL, woutputL, pdf_woutputL, rndSeed);
         if (length(f) > RADIANCE_EPSILON)
-            albedo += f * abs(woutputL.z) / max(DENOM_TOLERANCE, pdf_woutputL);
+            albedo += f * abs(woutputL.z) / max(PDF_EPSILON, pdf_woutputL);
     }
     albedo /= float(num_samples);
     return albedo;
