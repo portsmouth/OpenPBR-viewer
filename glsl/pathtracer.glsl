@@ -348,7 +348,7 @@ void main()
         vec3 TsW       = TsW_hit;
         vec3 baryCoord = baryCoord_hit;
 
-        // Construct shading frame
+        // Construct local shading frame
         Basis basis;
         #if SMOOTH_NORMALS
             // If the surface is opaque, but the incident ray lies below the hemisphere of the normal,
@@ -360,11 +360,15 @@ void main()
         #else
             basis = makeBasis(NgW, baryCoord);
         #endif
-
-        // Sample BSDF for the next bounce direction
         vec3 winputW = -rayDir; // winputW, points *towards* the incident direction (parallel to photon)
         vec3 winputL = worldToLocal(winputW, basis);
         vec3 woutputL; // woutputL, points *towards* the outgoing ray direction (opposite to photon)
+
+        // Prepare OpenPBR if required at the current vertex
+        if (material == SHELL_MATERIAL)
+            openpbr_prepare(pW, basis, winputL, rndSeed);
+
+        // Sample BSDF for the next bounce direction
         float bsdfPdf;
         vec3 f = sampleBsdf(pW, basis, winputL, material, woutputL, bsdfPdf, rndSeed);
         vec3 woutputW = localToWorld(woutputL, basis);
@@ -383,7 +387,7 @@ void main()
         pW += NgW * sign(dot(rayDir, NgW)) * RAY_OFFSET; // perturb vertex into geometric half-space of scattered ray
 
         // Add direct lighting term at the current surface vertex
-        float skyPdf = 0.0;
+        //float skyPdf = 0.0;
         //if (!inDielectric)
         //    L += throughput * directSurfaceLighting(pW, basis, winputW, material, skyPdf, rndSeed);
 

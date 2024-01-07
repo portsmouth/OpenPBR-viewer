@@ -3,6 +3,7 @@
 // "Specular" dielectric microfacet BRDF
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+
 void specular_ndf_roughnesses(out float alpha_x, out float alpha_y)
 {
     float rsqr = sqr(specular_roughness);
