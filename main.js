@@ -72,6 +72,9 @@ const params =
 	smoothNormals: true,
     bounces: 8,
 
+    sky_color_up:                        [1.0, 1.0, 1.0],
+    sky_color_down:                      [0.5, 0.5, 0.5],
+
     //////////////////////////////////////////////////////
     // OpenPBR surface params
     //////////////////////////////////////////////////////
@@ -204,6 +207,13 @@ function init()
 
 			seed:                  { value: 0 },
 			accumulation_weight:   { value: 1 },
+
+            //////////////////////////////////////////////////////
+            // lighting
+            //////////////////////////////////////////////////////
+
+            sky_color_up:                        { value: params.sky_color_up, },
+            sky_color_down:                      { value: params.sky_color_down, },
 
             //////////////////////////////////////////////////////
             // material
@@ -374,10 +384,7 @@ function setup(rtMaterial)
 	rtMaterial.depthWrite = false;
 
 	renderTarget = new WebGLRenderTarget(1, 1, {format: RGBAFormat, type: FloatType});
-
 	finalQuad = new FullScreenQuad( new MeshBasicMaterial({map: renderTarget.texture}) );
-
-    
 
     //////////////////////////////////////////////////////////
     // Setup GUI
@@ -385,25 +392,15 @@ function setup(rtMaterial)
         
     gui = new GUI();
 
-    gui.add( params, 'smoothNormals' ).onChange( v => {
-                                                        rtQuad.material.defines.SMOOTH_NORMALS = Number( v );
-                                                        rtQuad.material.needsUpdate = true;
-                                                        resetSamples();
-                                                      });
+    const material_folder = gui.addFolder('Material');
 
-	gui.add( params, 'bounces', 1, 16, 1 ).onChange( v => {
-                                                             rtMaterial.defines.BOUNCES = parseInt( v );
-                                                             rtMaterial.needsUpdate = true;
-                                                             resetSamples();
-                                                          });
-
-    const base_folder = gui.addFolder('Base');
+    const base_folder = material_folder.addFolder('Base');
     base_folder.add(params,          'base_weight', 0.0, 1.0).onChange(                               v => { rtMaterial.needsUpdate = true; resetSamples(); });
     base_folder.addColor(params,     'base_color').onChange(                                          v => { rtMaterial.needsUpdate = true; resetSamples(); });
     base_folder.add(params,          'base_roughness', 0.0, 1.0).onChange(                            v => { rtMaterial.needsUpdate = true; resetSamples(); });
     base_folder.add(params,          'base_metalness', 0.0, 1.0).onChange(                            v => { rtMaterial.needsUpdate = true; resetSamples(); });
                       
-    const specular_folder = gui.addFolder('Specular');                      
+    const specular_folder = material_folder.addFolder('Specular');
     specular_folder.add(params,      'specular_weight', 0.0, 1.0).onChange(                           v => { rtMaterial.needsUpdate = true; resetSamples(); });
     specular_folder.addColor(params, 'specular_color').onChange(                                      v => { rtMaterial.needsUpdate = true; resetSamples(); });
     specular_folder.add(params,      'specular_roughness', 0.0, 1.0).onChange(                        v => { rtMaterial.needsUpdate = true; resetSamples(); });
@@ -412,7 +409,7 @@ function setup(rtMaterial)
     specular_folder.add(params,      'specular_anisotropy', 0.0, 1.0).onChange(                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
     specular_folder.add(params,      'specular_rotation', 0.0, 1.0).onChange(                         v => { rtMaterial.needsUpdate = true; resetSamples(); });
     
-    const transmission_folder = gui.addFolder('Transmission');
+    const transmission_folder = material_folder.addFolder('Transmission');
     transmission_folder.add(params,      'transmission_weight', 0.0, 1.0).onChange(                   v => { rtMaterial.needsUpdate = true; resetSamples(); });
     transmission_folder.addColor(params, 'transmission_color').onChange(                              v => { rtMaterial.needsUpdate = true; resetSamples(); });
     transmission_folder.add(params,      'transmission_depth', 0.0, 1.0).onChange(                    v => { rtMaterial.needsUpdate = true; resetSamples(); });
@@ -422,7 +419,7 @@ function setup(rtMaterial)
     transmission_folder.add(params,      'transmission_dispersion_scale', 0.0, 1.0).onChange(         v => { rtMaterial.needsUpdate = true; resetSamples(); });
     transmission_folder.close();
 
-    const subsurface_folder = gui.addFolder('Subsurface');
+    const subsurface_folder = material_folder.addFolder('Subsurface');
     subsurface_folder.add(params,      'subsurface_weight', 0.0, 1.0).onChange(                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
     subsurface_folder.addColor(params, 'subsurface_color').onChange(                                  v => { rtMaterial.needsUpdate = true; resetSamples(); });
     subsurface_folder.add(params,      'subsurface_radius', 0.0, 1.0).onChange(                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
@@ -430,7 +427,7 @@ function setup(rtMaterial)
     subsurface_folder.add(params,      'subsurface_anisotropy', -1.0, 1.0).onChange(                  v => { rtMaterial.needsUpdate = true; resetSamples(); });
     subsurface_folder.close();
 
-    const coat_folder = gui.addFolder('Coat');
+    const coat_folder = material_folder.addFolder('Coat');
     coat_folder.add(params,          'coat_weight', 0.0, 1.0).onChange(                               v => { rtMaterial.needsUpdate = true; resetSamples(); });
     coat_folder.addColor(params,     'coat_color').onChange(                                          v => { rtMaterial.needsUpdate = true; resetSamples(); });
     coat_folder.add(params,          'coat_roughness', 0.0, 1.0).onChange(                            v => { rtMaterial.needsUpdate = true; resetSamples(); });
@@ -439,15 +436,34 @@ function setup(rtMaterial)
     coat_folder.add(params,          'coat_anisotropy', 0.0, 1.0).onChange(                           v => { rtMaterial.needsUpdate = true; resetSamples(); });
     coat_folder.add(params,          'coat_rotation', 0.0, 1.0).onChange(                             v => { rtMaterial.needsUpdate = true; resetSamples(); });
 
-    const fuzz_folder = gui.addFolder('Fuzz');
+    const fuzz_folder = material_folder.addFolder('Fuzz');
     fuzz_folder.add(params,          'fuzz_weight', 0.0, 1.0).onChange(                               v => { rtMaterial.needsUpdate = true; resetSamples(); });
     fuzz_folder.addColor(params,     'fuzz_color').onChange(                                          v => { rtMaterial.needsUpdate = true; resetSamples(); });
     fuzz_folder.add(params,          'fuzz_roughness', 0.0, 1.0).onChange(                            v => { rtMaterial.needsUpdate = true; resetSamples(); });
     fuzz_folder.close();                             
 
-    const geometry_folder = gui.addFolder('Geometry');
+    const geometry_folder = material_folder.addFolder('Geometry');
     geometry_folder.add(params,      'geometry_opacity', 0.0, 1.0).onChange(                          v => { rtMaterial.needsUpdate = true; resetSamples(); });
     geometry_folder.add(params,      'geometry_thin_walled').onChange(                                v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    geometry_folder.close();
+
+    const lighting_folder = gui.addFolder('Lighting');
+    lighting_folder.addColor(params, 'sky_color_up').onChange(                                        v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    lighting_folder.addColor(params, 'sky_color_down').onChange(                                      v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    lighting_folder.close();
+
+    const renderer_folder = gui.addFolder('Renderer');
+    renderer_folder.add( params, 'smoothNormals' ).onChange( v => {
+        rtQuad.material.defines.SMOOTH_NORMALS = Number( v );
+        rtQuad.material.needsUpdate = true;
+        resetSamples();
+    });
+    renderer_folder.add( params, 'bounces', 1, 16, 1 ).onChange( v => {
+        rtMaterial.defines.BOUNCES = parseInt( v );
+        rtMaterial.needsUpdate = true;
+        resetSamples();
+    });
+    renderer_folder.close();
 
     gui.open(); 
 
@@ -508,7 +524,10 @@ function render()
     {
 		camera.updateMatrixWorld();
 
-		// sync material
+        //////////////////////////////////////////////////////
+        // sync shader uniforms
+        //////////////////////////////////////////////////////
+
 		const uniforms = rtQuad.material.uniforms;
 
         const w = window.innerWidth;
@@ -525,10 +544,7 @@ function render()
         let resolution = new Vector2(w, h);
         uniforms.resolution.value.copy(resolution);
 
-        //////////////////////////////////////////////////////
         // sync material params
-        //////////////////////////////////////////////////////
-
         uniforms.base_weight.value                            = params.base_weight;
         uniforms.base_color.value.copy(get_vector3(             params.base_color));
         uniforms.base_roughness.value                         = params.base_roughness;
@@ -570,6 +586,14 @@ function render()
 
         uniforms.geometry_opacity.value                       = params.geometry_opacity;
         uniforms.geometry_thin_walled.value                   = params.geometry_thin_walled;
+
+        // sync lighting params
+        uniforms.sky_color_up.value                           = params.sky_color_up;
+        uniforms.sky_color_down.value                         = params.sky_color_down;
+
+        //////////////////////////////////////////////////////
+        // render framebuffer
+        //////////////////////////////////////////////////////
 
 		// render float target
         renderer.autoClear = (samples === 0);

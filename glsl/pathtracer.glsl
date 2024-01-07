@@ -200,9 +200,8 @@ vec3 sampleBsdf(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed, 
 
 vec3 environmentRadiance(in vec3 dir)
 {
-    float value = ( dir.y + 0.5 ) / 1.5;
-    vec3 skyColor = mix(vec3(1.0), vec3(0.25, 0.5, 1.0), value );
-    //vec3 skyColor = vec3(1.0);
+    float value = (dir.y + 0.5)/1.5;
+    vec3 skyColor = mix(sky_color_down, sky_color_up, value);
     return skyColor;
 }
 
