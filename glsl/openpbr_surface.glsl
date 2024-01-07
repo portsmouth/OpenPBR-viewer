@@ -50,65 +50,47 @@ LobeProbs   lobe_probs;
 void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed,
                           inout LobeWeights weights, inout LobeAlbedos albedos)
 {
-    /////////////////////////////////////////////////////////////////////
-    // Surface
-    /////////////////////////////////////////////////////////////////////
+    // Surface //////////////////////
 
     // Fuzz BRDF
     weights.m[ID_FUZZ_BRDF] = vec3(0.0); // fuzz_weight;
     if (maxComponent(weights.m[ID_FUZZ_BRDF]) > 0.0) albedos.m[ID_FUZZ_BRDF] = vec3(0.0); //fuzz_brdf_albedo(pW, basis, winputL, rndSeed);
     else                                             albedos.m[ID_FUZZ_BRDF] = vec3(0.0);
-    
-        /////////////////////////////////////////////////////////////////////
-        // Coated base
-        /////////////////////////////////////////////////////////////////////
 
-        // Coat BRDF
-        vec3 w_coated_base = vec3(1.0); //mix(vec3(1.0), vec3(1.0) - albedos.a_fuzz_brdf, F)
-        weights.m[ID_COAT_BRDF] = w_coated_base * coat_weight;
-        albedos.m[ID_COAT_BRDF] = (maxComponent(weights.m[ID_COAT_BRDF]) > 0.0) ? coat_brdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
+    // Coated base //////////////////////
+    vec3 w_coated_base = vec3(1.0); //mix(vec3(1.0), vec3(1.0) - albedos.a_fuzz_brdf, F)
 
-            /////////////////////////////////////////////////////////////////////
-            // Base substrate
-            /////////////////////////////////////////////////////////////////////
+    // Coat BRDF
+    weights.m[ID_COAT_BRDF] = w_coated_base * coat_weight;
+    albedos.m[ID_COAT_BRDF] = (maxComponent(weights.m[ID_COAT_BRDF]) > 0.0) ? coat_brdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
 
-            vec3 w_base_substrate = w_coated_base * mix(vec3(1.0), coat_color*(vec3(1.0) - albedos.m[ID_COAT_BRDF]), coat_weight);
+    // Base substrate //////////////////////
+    vec3 w_base_substrate = w_coated_base * mix(vec3(1.0), coat_color*(vec3(1.0) - albedos.m[ID_COAT_BRDF]), coat_weight);
 
-            // Metal BRDF
-            weights.m[ID_META_BRDF] = w_base_substrate * base_metalness;
-            albedos.m[ID_META_BRDF] = (maxComponent(weights.m[ID_META_BRDF]) > 0.0) ? metal_brdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
+    // Metal BRDF
+    weights.m[ID_META_BRDF] = w_base_substrate * base_metalness;
+    albedos.m[ID_META_BRDF] = (maxComponent(weights.m[ID_META_BRDF]) > 0.0) ? metal_brdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
 
-                /////////////////////////////////////////////////////////////////////
-                // Dielectric base
-                /////////////////////////////////////////////////////////////////////
+    // Dielectric base //////////////////////
+    vec3 w_dielectric_base = w_base_substrate * vec3(max(0.0, 1.0 - base_metalness));
 
-                    vec3 w_dielectric_base = w_base_substrate * vec3(max(0.0, 1.0 - base_metalness));
+    // Specular BRDF
+    weights.m[ID_SPEC_BRDF] = w_dielectric_base;
+    albedos.m[ID_SPEC_BRDF] = (maxComponent(weights.m[ID_SPEC_BRDF]) > 0.0) ? specular_brdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
 
-                    // Specular BRDF
-                    weights.m[ID_SPEC_BRDF] = w_dielectric_base;
-                    albedos.m[ID_SPEC_BRDF] = (maxComponent(weights.m[ID_SPEC_BRDF]) > 0.0) ? specular_brdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
+    // Specular BTDF
+    weights.m[ID_SPEC_BTDF] = w_dielectric_base * transmission_weight;
+    albedos.m[ID_SPEC_BTDF] = (maxComponent(weights.m[ID_SPEC_BTDF]) > 0.0) ? specular_btdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
 
-                    //////////////////////////////////////////////
-                    // Translucent dielectric base
-                    //////////////////////////////////////////////
+    // Opaque dielectric base //////////////////////
+    vec3 w_opaque_dielectric_base = w_dielectric_base * (1.0 - transmission_weight);
 
-                    // Specular BTDF
-                    weights.m[ID_SPEC_BTDF] = w_dielectric_base * transmission_weight;
-                    albedos.m[ID_SPEC_BTDF] = (maxComponent(weights.m[ID_SPEC_BTDF]) > 0.0) ? specular_btdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
+    // Diffuse BRDF
+    weights.m[ID_DIFF_BRDF] = w_opaque_dielectric_base * (1.0 - subsurface_weight) * (vec3(1.0) - albedos.m[ID_SPEC_BRDF]);
+    albedos.m[ID_DIFF_BRDF] = (maxComponent(weights.m[ID_DIFF_BRDF]) > 0.0) ? diffuse_brdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
 
-                    //////////////////////////////////////////////
-                    // Opaque dielectric base
-                    //////////////////////////////////////////////
-
-                        vec3 w_opaque_dielectric_base = w_dielectric_base * (1.0 - transmission_weight);
-
-                        // Diffuse BRDF
-                        weights.m[ID_DIFF_BRDF] = w_opaque_dielectric_base * (1.0 - subsurface_weight) * (vec3(1.0) - albedos.m[ID_SPEC_BRDF]);
-                        albedos.m[ID_DIFF_BRDF] = (maxComponent(weights.m[ID_DIFF_BRDF]) > 0.0) ? diffuse_brdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
-
-                        // Subsurface BSSRDF
-                        weights.m[ID_SSSC_BTDF] = w_opaque_dielectric_base * subsurface_weight;
-
+    // Subsurface BSSRDF
+    weights.m[ID_SSSC_BTDF] = w_opaque_dielectric_base * subsurface_weight;
 }
 
 
