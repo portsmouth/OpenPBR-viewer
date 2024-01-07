@@ -4,17 +4,17 @@ uniform mat4 invProjectionMatrix;
 uniform mat4 invModelMatrix;
 uniform vec2 resolution;
 
-uniform sampler2D normalAttribute_shell;
-uniform sampler2D normalAttribute_scene;
-uniform sampler2D tangentAttribute_shell;
-uniform sampler2D tangentAttribute_scene;
-uniform bool has_normals_shell;
-uniform bool has_tangents_shell;
-uniform bool has_normals_scene;
-uniform bool has_tangents_scene;
+uniform sampler2D normalAttribute_surface;
+uniform sampler2D normalAttribute_props;
+uniform sampler2D tangentAttribute_surface;
+uniform sampler2D tangentAttribute_props;
+uniform bool has_normals_surface;
+uniform bool has_tangents_surface;
+uniform bool has_normals_props;
+uniform bool has_tangents_props;
 
-uniform BVH bvh_shell;
-uniform BVH bvh_scene;
+uniform BVH bvh_surface;
+uniform BVH bvh_props;
 
 uniform float accumulation_weight;
 uniform float seed;
@@ -90,8 +90,8 @@ const float IOR_EPSILON           = 1.0e-5;
 const float FLT_EPSILON           = 1.1920929e-7;
 
 // material indices
-const int SCENE_MATERIAL = 0;
-const int SHELL_MATERIAL = 1;
+const int MATERIAL_PROPS   = 0;
+const int MATERIAL_OPENPBR = 1;
 
 //////////////////////////////////////////////////////
 // utils
@@ -295,7 +295,7 @@ float sample_triangle_filter(float xi)
 
 bool cutout(in int material, inout int rndSeed)
 {
-    if (material != SHELL_MATERIAL)
+    if (material != MATERIAL_OPENPBR)
         return false;
     if (!geometry_thin_walled || geometry_opacity==1.0)
         return false;

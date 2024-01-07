@@ -125,11 +125,11 @@ let rtQuad, finalQuad, renderTarget;
 let samples = 0;
 let outputContainer;
 
-let MESH_SHELL;
-let MESH_SCENE;
+let MESH_SURFACE;
+let MESH_PROPS;
 
-let BVH_SHELL;
-let BVH_SCENE;
+let BVH_SURFACE;
+let BVH_PROPS;
 
 let LOADED;
 
@@ -141,11 +141,11 @@ function init()
     console.log('init');
 
     LOADED = false;
-    MESH_SHELL = null;
-    MESH_SCENE = null;
+    MESH_SURFACE = null;
+    MESH_PROPS = null;
 
-    BVH_SHELL = null;
-    BVH_SCENE = null;
+    BVH_SURFACE = null;
+    BVH_PROPS = null;
 
 	// renderer setup
 	renderer = new WebGLRenderer( { antialias: false } );
@@ -179,22 +179,23 @@ function init()
         defines: 
         {
             SMOOTH_NORMALS: 1,
+            SURFACE_IS_SHADERCUBE: 0,
             BOUNCES: params.bounces,
         },
 
         uniforms: 
         {
-            bvh_shell:             { value: new MeshBVHUniformStruct() },
-            normalAttribute_shell: { value: new FloatVertexAttributeTexture() },
-            tangentAttribute_shell:{ value: new FloatVertexAttributeTexture() },
-            has_normals_shell:     { value: 1 },
-            has_tangents_shell:    { value: 0 },
+            bvh_surface:             { value: new MeshBVHUniformStruct() },
+            normalAttribute_surface: { value: new FloatVertexAttributeTexture() },
+            tangentAttribute_surface:{ value: new FloatVertexAttributeTexture() },
+            has_normals_surface:     { value: 1 },
+            has_tangents_surface:    { value: 0 },
 
-            bvh_scene:             { value: new MeshBVHUniformStruct() },
-            normalAttribute_scene: { value: new FloatVertexAttributeTexture() },
-            tangentAttribute_scene:{ value: new FloatVertexAttributeTexture() },
-            has_normals_scene:     { value: 1 },
-            has_tangents_scene:    { value: 0 },
+            bvh_props:             { value: new MeshBVHUniformStruct() },
+            normalAttribute_props: { value: new FloatVertexAttributeTexture() },
+            tangentAttribute_props:{ value: new FloatVertexAttributeTexture() },
+            has_normals_props:     { value: 1 },
+            has_tangents_props:    { value: 0 },
 
             cameraWorldMatrix:     { value: new Matrix4() },
             invProjectionMatrix:   { value: new Matrix4() },
@@ -285,45 +286,45 @@ function init()
     loader.load('standard-shader-ball/core_base_floor.gltf').then( () => {
 
         scene.add(loader.result.scene);
-        MESH_SCENE = loader.result.mesh;
-        BVH_SCENE  = loader.result.bvh;
-        rtMaterial.uniforms.bvh_scene.value.updateFrom( BVH_SCENE );
-        rtMaterial.uniforms.has_normals_scene.value = false;
-        rtMaterial.uniforms.has_tangents_scene.value = false;
-        if (MESH_SCENE.geometry.attributes.normal)
+        MESH_PROPS = loader.result.mesh;
+        BVH_PROPS  = loader.result.bvh;
+        rtMaterial.uniforms.bvh_props.value.updateFrom( BVH_PROPS );
+        rtMaterial.uniforms.has_normals_props.value = false;
+        rtMaterial.uniforms.has_tangents_props.value = false;
+        if (MESH_PROPS.geometry.attributes.normal)
         {
-            rtMaterial.uniforms.normalAttribute_scene.value.updateFrom( MESH_SCENE.geometry.attributes.normal );
-            rtMaterial.uniforms.has_normals_scene.value = true;
+            rtMaterial.uniforms.normalAttribute_props.value.updateFrom( MESH_PROPS.geometry.attributes.normal );
+            rtMaterial.uniforms.has_normals_props.value = true;
         }
-        if (MESH_SCENE.geometry.attributes.tangent)
+        if (MESH_PROPS.geometry.attributes.tangent)
         {
-            rtMaterial.uniforms.tangentAttribute_scene.value.updateFrom( MESH_SCENE.geometry.attributes.tangent );
-            rtMaterial.uniforms.has_tangents_scene.value = true;
+            rtMaterial.uniforms.tangentAttribute_props.value.updateFrom( MESH_PROPS.geometry.attributes.tangent );
+            rtMaterial.uniforms.has_tangents_props.value = true;
         }
-        console.log("  has_normals_scene:  ", rtMaterial.uniforms.has_normals_scene);
-        console.log("  has_tangents_scene: ", rtMaterial.uniforms.has_tangents_scene);
+        console.log("  has_normals_scene:  ", rtMaterial.uniforms.has_normals_props);
+        console.log("  has_tangents_scene: ", rtMaterial.uniforms.has_tangents_props);
 
         loader.reset();
         loader.load('standard-shader-ball/shell.gltf').then( () => {
 
             scene.add(loader.result.scene);
-            MESH_SHELL = loader.result.mesh;
-            BVH_SHELL  = loader.result.bvh;
-            rtMaterial.uniforms.bvh_shell.value.updateFrom( BVH_SHELL );
-            rtMaterial.uniforms.has_normals_shell.value = false;
-            rtMaterial.uniforms.has_tangents_shell.value = false;
-            if (MESH_SHELL.geometry.attributes.normal)
+            MESH_SURFACE = loader.result.mesh;
+            BVH_SURFACE  = loader.result.bvh;
+            rtMaterial.uniforms.bvh_surface.value.updateFrom( BVH_SURFACE );
+            rtMaterial.uniforms.has_normals_surface.value = false;
+            rtMaterial.uniforms.has_tangents_surface.value = false;
+            if (MESH_SURFACE.geometry.attributes.normal)
             {
-                rtMaterial.uniforms.normalAttribute_shell.value.updateFrom( MESH_SHELL.geometry.attributes.normal );
-                rtMaterial.uniforms.has_normals_shell.value = true;
+                rtMaterial.uniforms.normalAttribute_surface.value.updateFrom( MESH_SURFACE.geometry.attributes.normal );
+                rtMaterial.uniforms.has_normals_surface.value = true;
             }
-            if (MESH_SHELL.geometry.attributes.tangent)
+            if (MESH_SURFACE.geometry.attributes.tangent)
             {
-                rtMaterial.uniforms.tangentAttribute_shell.value.updateFrom( MESH_SHELL.geometry.attributes.tangent );
-                rtMaterial.uniforms.has_tangents_shell.value = true;
+                rtMaterial.uniforms.tangentAttribute_surface.value.updateFrom( MESH_SURFACE.geometry.attributes.tangent );
+                rtMaterial.uniforms.has_tangents_surface.value = true;
             }
-            console.log("  has_normals_shell:  ", rtMaterial.uniforms.has_normals_shell);
-            console.log("  has_tangents_shell: ", rtMaterial.uniforms.has_tangents_shell);
+            console.log("  has_normals_surface:  ", rtMaterial.uniforms.has_normals_surface);
+            console.log("  has_tangents_surface: ", rtMaterial.uniforms.has_tangents_surface);
 
             setup(rtMaterial);
             console.log("===> LOADED");
@@ -345,7 +346,7 @@ function setup(rtMaterial)
 
 
     let bounds = new Box3()
-    bounds.setFromObject(MESH_SHELL);
+    bounds.setFromObject(MESH_SURFACE);
     let boundsMin = bounds.min;
     let boundsMax = bounds.max;
     let scale = Math.max(boundsMax.x-boundsMin.x,
