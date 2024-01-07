@@ -9,17 +9,22 @@ void coat_ndf_roughnesses(out float alpha_x, out float alpha_y)
     float rsqr = sqr(coat_roughness);
     alpha_x = rsqr * sqrt(2.0/(1.0 + sqr(1.0 - coat_anisotropy)));
     alpha_y = (1.0 - coat_anisotropy) * alpha_x;
+    // (Here opt to clamp to a mininum roughness, rather than deal with a special degenerate case for zero roughness)
     const float min_alpha = 1.0e-4;
     alpha_x = max(min_alpha, alpha_x);
     alpha_y = max(min_alpha, alpha_y);
 }
 
+
 vec3 coat_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
-                        inout int rndSeed)
+                        inout float pdf_woutputL)
 {
     bool transmitted = woutputL.z * winputL.z < 0.0;
     if (transmitted)
+    {
+        pdf_woutputL = PDF_EPSILON;
         return vec3(0.0);
+    }
 
     // We assume that the local frame is setup so that the z direction points from the dielectric interior to the exterior.
     // Thus we can determine if the reflection is internal or external to the dielectric:
@@ -34,6 +39,7 @@ vec3 coat_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
     if (abs(eta_ti_refl - 1.0) < IOR_EPSILON)
     {
         // degenerate case of index-matched interface, BRDF goes to zero
+        pdf_woutputL = 1.0;
         return vec3(0.0);
     }
 
@@ -51,16 +57,22 @@ vec3 coat_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
     
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
+    float DV = D * ggx_G1(winputR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) / winputR.z;
 
     // Compute Fresnel factor for the dielectric reflection
     float F = FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl);
+
+    // Thus compute PDF of woutputL sample
+    float dwh_dwo = 1.0 / max(abs(4.0*dot(winputR, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
+    pdf_woutputL = DV * dwh_dwo;
 
     // Thus evaluate BRDF
     return vec3(F) * D * ggx_G2(winputR, woutputR, alpha_x, alpha_y) / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
 }
 
-vec3 coat_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
-                      out vec3 woutputL, out float pdf_woutputL, inout int rndSeed)
+
+vec3 coat_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed,
+                      out vec3 woutputL, out float pdf_woutputL)
 {
     // We assume that the local frame is setup so that the z direction points from the dielectric interior to the exterior.
     // Thus we can determine if the reflection is internal or external to the dielectric:
@@ -100,7 +112,7 @@ vec3 coat_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float DV = ggx_G1(winputR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) * D / max(DENOM_TOLERANCE, winputR.z);
+    float DV = D * ggx_G1(winputR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) / max(DENOM_TOLERANCE, winputR.z);
 
     // Thus compute PDF of woutputL sample
     float dwh_dwo = 1.0 / max(abs(4.0*dot(winputR, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
@@ -114,51 +126,8 @@ vec3 coat_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
     return f;
 }
 
-float coat_brdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL)
-{
-    bool transmitted = woutputL.z * winputL.z < 0.0;
-    if (transmitted)
-        return PDF_EPSILON;
 
-    // We assume that the local frame is setup so that the z direction points from the dielectric interior to the exterior:
-    vec3 beamOutgoingL = winputL;
-    bool external_reflection = (beamOutgoingL.z > 0.0);
-
-    // Compute IOR ratio at interface:
-    //  eta_ti_refl = (IOR in hemi. opposite to reflection) / (IOR in hemi. of reflection)
-    float n_exterior = 1.0;
-    float n_interior = coat_ior;
-    float eta_ti_refl = external_reflection ? n_interior/n_exterior : n_exterior/n_interior;
-    if (abs(eta_ti_refl - 1.0) < IOR_EPSILON)
-    {
-        // degenerate limit case of index-matched interface, BRDF goes to zero
-        return 1.0;
-    }
-
-    // Construct basis such that x, y are aligned with the T, B in the local, rotated frame
-    LocalFrameRotation rotation = getLocalFrameRotation(PI2 * coat_rotation);
-    vec3 winputR  = localToRotated(winputL,  rotation);
-    vec3 woutputR = localToRotated(woutputL, rotation);
-
-    // Compute the NDF roughnesses in the rotated frame
-    float alpha_x, alpha_y;
-    coat_ndf_roughnesses(alpha_x, alpha_y);
-
-    // Compute the local micronormal from the reflection half-vector
-    vec3 mR = normalize(winputR + woutputR);
-
-    // Compute NDF, and "distribution of visible normals" DV
-    float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float DV = ggx_G1(winputR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) * D / winputR.z;
-
-    // Thus compute PDF of woutputL sample
-    float dwh_dwo = 1.0 / max(abs(4.0*dot(winputR, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
-    float pdf_woutputL = DV * dwh_dwo;
-    return pdf_woutputL;
-}
-
-vec3 coat_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL,
-                          inout int rndSeed)
+vec3 coat_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed)
 {
     float n_exterior = 1.0;
     float n_interior = coat_ior;
@@ -176,7 +145,7 @@ vec3 coat_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL,
     {
         vec3 woutputL;
         float pdf_woutputL;
-        vec3 f = coat_brdf_sample(pW, basis, winputL, woutputL, pdf_woutputL, rndSeed);
+        vec3 f = coat_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_woutputL);
         if (length(f) > RADIANCE_EPSILON)
             albedo += f * abs(woutputL.z) / max(PDF_EPSILON, pdf_woutputL);
     }

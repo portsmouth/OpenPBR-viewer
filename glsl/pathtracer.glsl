@@ -157,29 +157,22 @@ float TraceShadow(in vec3 rayOrigin, in vec3 rayDir)
 // Grey Lambertian scene BRDF
 //////////////////////////////////////
 
-vec3 grey_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL)
+vec3 grey_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
+                        inout float pdf_woutputL)
 {
+    pdf_woutputL = pdfHemisphereCosineWeighted(winputL);
     if (winputL.z < 0.0 || woutputL.z < 0.0) return vec3(0.0);
-    if (minComponent(basis.baryCoord) < 0.01)
-        return vec3(0.0);
+    if (minComponent(basis.baryCoord) < 0.01) return vec3(0.0);
     return vec3(0.5)/PI;
 }
 
-vec3 grey_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
-                        out vec3 woutputL, out float pdf_woutputL, inout int rndSeed)
+vec3 grey_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed,
+                        out vec3 woutputL, out float pdf_woutputL)
 {
-    if (winputL.z < 0.0) return vec3(0.0);
-    vec3 diffuseAlbedo;
     woutputL = sampleHemisphereCosineWeighted(rndSeed, pdf_woutputL);
-    if (minComponent(basis.baryCoord) < 0.01)
-        return vec3(0.0);
+    if (winputL.z < 0.0) return vec3(0.0);
+    if (minComponent(basis.baryCoord) < 0.01) return vec3(0.0);
     return vec3(0.5)/PI;
-}
-
-float grey_brdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL)
-{
-    if (winputL.z < 0.0 || woutputL.z < 0.0) return 0.0;
-    return pdfHemisphereCosineWeighted(winputL);
 }
 
 //////////////////////////////////////
@@ -187,24 +180,17 @@ float grey_brdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutput
 //////////////////////////////////////
 
 vec3 evaluateBsdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL, in int material, 
-                    inout int rndSeed)
+                  inout float pdf_woutputL)
 {
-    if (material == MATERIAL_OPENPBR) return openpbr_bsdf_evaluate(pW, basis, winputL, woutputL, rndSeed);
-    else                              return    grey_brdf_evaluate(pW, basis, winputL, woutputL);
+    if (material == MATERIAL_OPENPBR) return openpbr_bsdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
+    else                              return    grey_brdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
 }
 
-vec3 sampleBsdf(in vec3 pW, in Basis basis, in vec3 winputL, in int material,
-                out vec3 woutputL, out float pdfOut, inout int rndSeed)
+vec3 sampleBsdf(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed, in int material,
+                out vec3 woutputL, out float pdfOut)
 {
-    if (material == MATERIAL_OPENPBR) return openpbr_bsdf_sample(pW, basis, winputL, woutputL, pdfOut, rndSeed);
-    else                              return    grey_brdf_sample(pW, basis, winputL, woutputL, pdfOut, rndSeed);
-}
-
-float pdfBsdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL, in int material,
-                inout int rndSeed)
-{
-    if (material == MATERIAL_OPENPBR) return openpbr_bsdf_pdf(pW, basis, winputL, woutputL, rndSeed);
-    else                              return    grey_brdf_pdf(pW, basis, winputL, woutputL);
+    if (material == MATERIAL_OPENPBR) return openpbr_bsdf_sample(pW, basis, winputL, rndSeed, woutputL, pdfOut);
+    else                              return    grey_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdfOut);
 }
 
 
@@ -246,10 +232,10 @@ vec3 directSurfaceLighting(in vec3 pW, in Basis basis, in vec3 winputW, in int m
         if (maxComponent(Li) > RADIANCE_EPSILON)
         {
             // Apply MIS weight with the BSDF pdf for the sampled direction
-            float bsdfPdf = max(PDF_EPSILON, pdfBsdf(pW, basis, winputL, woutputL, material, rndSeed));
-            vec3 f = evaluateBsdf(pW, basis, winputL, woutputL, material, rndSeed);
+            float bsdfPdf;
+            vec3 f = evaluateBsdf(pW, basis, winputL, woutputL, material, bsdfPdf);
             float misWeight = balanceHeuristic(skyPdf, bsdfPdf);
-            Ldirect += f * Li/max(PDF_EPSILON, skyPdf) * abs(dot(woutputW, basis.nW)) * misWeight;
+            Ldirect += f * Li / max(PDF_EPSILON, skyPdf) * abs(dot(woutputW, basis.nW)) * misWeight;
         }
     }
     return Ldirect;
@@ -364,7 +350,7 @@ void main()
         // Sample BSDF for the next ray direction
         vec3 woutputL; // points *towards* the outgoing ray direction (opposite to photon)
         float bsdfPdf;
-        vec3 f = sampleBsdf(pW, basis, winputL, material, woutputL, bsdfPdf, rndSeed);
+        vec3 f = sampleBsdf(pW, basis, winputL, rndSeed, material, woutputL, bsdfPdf);
         vec3 woutputW = localToWorld(woutputL, basis);
 
         bool transmitted = (dot(winputW, NgW) * dot(woutputW, NgW) < 0.0);
@@ -381,14 +367,14 @@ void main()
         pW += NgW * sign(dot(rayDir, NgW)) * RAY_OFFSET; // perturb vertex into geometric half-space of scattered ray
 
         // Add direct lighting term at the current surface vertex
-        //float skyPdf = 0.0;
-        //if (!inDielectric)
-        //    L += throughput * directSurfaceLighting(pW, basis, winputW, material, skyPdf, rndSeed);
+        float skyPdf = 0.0;
+        if (!inDielectric)
+            L += throughput * directSurfaceLighting(pW, basis, winputW, material, skyPdf, rndSeed);
 
         // Update path continuation throughput
         throughput *= f / max(PDF_EPSILON, bsdfPdf) * abs(dot(woutputW, basis.nW));
 
-        //misWeightSky = balanceHeuristic(bsdfPdf, skyPdf); // compute sky MIS weight for bounce ray
+        misWeightSky = balanceHeuristic(bsdfPdf, skyPdf); // compute sky MIS weight for bounce ray
 
         // TODO: Russian roulette
 
