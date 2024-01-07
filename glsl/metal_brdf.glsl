@@ -3,10 +3,12 @@
 // "Metal" conductor microfacet BSDF
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+
 vec3 FresnelSchlick(vec3 F0, float mu)
 {
     return F0 + pow(1.0 - mu, 5.0)*(vec3(1.0) - F0);
 }
+
 
 vec3 FresnelF82Tint(float mu, in vec3 F0, in vec3 F82tint)
 {
@@ -17,10 +19,15 @@ vec3 FresnelF82Tint(float mu, in vec3 F0, in vec3 F82tint)
     return Fschlick - mu * pow(1.0 - mu, 6.0) * (vec3(1.0) - F82tint) * Fschlick_bar / denom;
 }
 
+
 vec3 metal_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
-                         inout int rndSeed)
+                         inout float pdf_woutputL)
 {
-    if (winputL.z < DENOM_TOLERANCE || woutputL.z < DENOM_TOLERANCE) return vec3(0.0);
+    if (winputL.z < DENOM_TOLERANCE || woutputL.z < DENOM_TOLERANCE)
+    {
+        pdf_woutputL = PDF_EPSILON;
+        return vec3(0.0);
+    }
 
     // Construct basis such that x, y are aligned with the T, B in the local, rotated frame
     LocalFrameRotation rotation = getLocalFrameRotation(PI2*specular_rotation);
@@ -35,8 +42,13 @@ vec3 metal_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wo
     // Compute the micronormal mR in the local (rotated) frame, from the reflection half-vector
     vec3 mR = normalize(woutputR + winputR);
 
-    // Compute NDF
+    // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
+    float DV = D * ggx_G1(winputR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) / max(DENOM_TOLERANCE, winputR.z);
+
+    // Thus compute PDF of woutputL sample
+    float dwh_dwo = 1.0 / max(abs(4.0*dot(winputR, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
+    pdf_woutputL = DV * dwh_dwo;
 
     // Compute Fresnel factor for the conductor reflection
     vec3 F = FresnelF82Tint(abs(dot(winputR, mR)), base_weight * base_color, specular_weight * specular_color);
@@ -48,8 +60,9 @@ vec3 metal_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wo
     return F * D * G2 / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
 }
 
-vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
-                       out vec3 woutputL, out float pdf_woutputL, inout int rndSeed)
+
+vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed,
+                       out vec3 woutputL, out float pdf_woutputL)
 {
     if (winputL.z < DENOM_TOLERANCE) return vec3(0.0);
 
@@ -88,35 +101,8 @@ vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
     return F * D * G2 / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
 }          
 
-float metal_brdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL)
-{
-    if (winputL.z < DENOM_TOLERANCE) return PDF_EPSILON;
 
-    // Construct basis such that x, y are aligned with the T, B in the local, rotated frame
-    LocalFrameRotation rotation = getLocalFrameRotation(PI2*specular_rotation);
-    vec3 winputR  = localToRotated(winputL,  rotation);
-    vec3 woutputR = localToRotated(woutputL, rotation);
-
-    // Compute the NDF roughnesses in the rotated frame
-    // (Note that the metal shares the same NDF as the dielectric/specular base)
-    float alpha_x, alpha_y;
-    specular_ndf_roughnesses(alpha_x, alpha_y);
-
-    // Compute the local micronormal from the reflection half-vector
-    vec3 mR = normalize(winputR + woutputR);
-
-    // Compute NDF, and "distribution of visible normals" DV
-    float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float DV = ggx_G1(winputR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) * D / max(DENOM_TOLERANCE, winputR.z);
-
-    // Thus compute PDF of woutputL sample
-    float dwh_dwo = 1.0 / max(abs(4.0*dot(winputR, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
-    float pdf_woutputL = DV * dwh_dwo;
-    return pdf_woutputL;
-}
-
-vec3 metal_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL,
-                        inout int rndSeed)
+vec3 metal_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed)
 {
     if (winputL.z < DENOM_TOLERANCE) return vec3(0.0);
 
@@ -127,7 +113,7 @@ vec3 metal_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL,
     {
         vec3 woutputL;
         float pdf_woutputL;
-        vec3 f = metal_brdf_sample(pW, basis, winputL, woutputL, pdf_woutputL, rndSeed);
+        vec3 f = metal_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_woutputL);
         if (length(f) > RADIANCE_EPSILON)
             albedo += f * abs(woutputL.z) / max(PDF_EPSILON, pdf_woutputL);
     }
