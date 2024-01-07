@@ -104,10 +104,11 @@ vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int rn
 
 vec3 metal_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed)
 {
+    // Estimate of the BRDF albedo, used to compute the discrete probability of selecting this lobe
     if (winputL.z < DENOM_TOLERANCE) return vec3(0.0);
 
     // Approximate albedo via Monte-Carlo sampling:
-    const int num_samples = 4;
+    const int num_samples = 1;
     vec3 albedo = vec3(0.0);
     for (int n=0; n<num_samples; ++n)
     {

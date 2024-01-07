@@ -67,6 +67,13 @@ uniform float fuzz_roughness;
 uniform float geometry_opacity;
 uniform bool geometry_thin_walled;
 
+//////////////////////////////////////////////////////
+// lighting uniforms
+//////////////////////////////////////////////////////
+
+uniform vec3 sky_color_up;
+uniform vec3 sky_color_down;
+
 
 //////////////////////////////////////////////////////
 // useful constants
@@ -118,17 +125,14 @@ float averageComponent(in vec3 v)
     return (v.x + v.y + v.z)/3.0;
 }
 
-float sqr(float x)              { return x*x; }
+float sqr(float x) { return x*x; }
 
-float cosTheta2(in vec3 nLocal) { return nLocal.z*nLocal.z; }
-float cosTheta(in vec3 nLocal)  { return nLocal.z; }
-float sinTheta2(in vec3 nLocal) { return 1.0 - cosTheta2(nLocal); }
-float sinTheta(in vec3 nLocal)  { return sqrt(max(0.0, sinTheta2(nLocal))); }
-float tanTheta2(in vec3 nLocal) { float ct2 = cosTheta2(nLocal); return max(0.0, 1.0 - ct2) / max(ct2, DENOM_TOLERANCE); }
-float tanTheta(in vec3 nLocal)  { return sqrt(max(0.0, tanTheta2(nLocal))); }
-
-float cosPhi2(in vec3 nLocal)   { return nLocal.x / max(sinTheta(nLocal), DENOM_TOLERANCE); }
-float sinPhi2(in vec3 nLocal)   { return nLocal.y / max(sinTheta(nLocal), DENOM_TOLERANCE); }
+float cosTheta2( in vec3 w)  { return w.z*w.z; }
+float cosTheta(  in vec3 w)  { return w.z; }
+float sinTheta2( in vec3 w)  { return 1.0 - cosTheta2(w); }
+float sinTheta(  in vec3 w)  { return sqrt(max(0.0, sinTheta2(w))); }
+float cosPhi(in vec3 w) { float S = sinTheta(w); return (S == 0.0) ? 1.0 : clamp(w.x / S, -1.0, 1.0); }
+float sinPhi(in vec3 w) { float S = sinTheta(w); return (S == 0.0) ? 1.0 : clamp(w.y / S, -1.0, 1.0); }
 
 
 /////////////////////////////////////////////////////////////////////////
