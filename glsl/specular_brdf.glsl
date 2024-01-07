@@ -8,6 +8,9 @@ void specular_ndf_roughnesses(out float alpha_x, out float alpha_y)
     float rsqr = sqr(specular_roughness);
     alpha_x = rsqr * sqrt(2.0/(1.0 + sqr(1.0 - specular_anisotropy)));
     alpha_y = (1.0 - specular_anisotropy) * alpha_x;
+    const float min_alpha = 1.0e-4;
+    alpha_x = max(min_alpha, alpha_x);
+    alpha_y = max(min_alpha, alpha_y);
 }
 
 vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
@@ -33,6 +36,13 @@ vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
         return vec3(0.0);
     }
 
+    // Non-physical Fresnel tint to apply
+    vec3 tint = specular_weight * specular_color;
+
+   // Compute the NDF roughnesses in the rotated frame
+    float alpha_x, alpha_y;
+    specular_ndf_roughnesses(alpha_x, alpha_y);
+
     // Construct basis such that x, y are aligned with the T, B in the local, rotated frame
     LocalFrameRotation rotation = getLocalFrameRotation(PI2 * specular_rotation);
     vec3 winputR  = localToRotated(winputL,  rotation);
@@ -41,27 +51,17 @@ vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
     // Compute the micronormal mR in the local (rotated) frame, from the reflection half-vector
     vec3 mR = normalize(woutputR + winputR);
 
-    // Compute the NDF roughnesses in the rotated frame
-    float alpha_x, alpha_y;
-    specular_ndf_roughnesses(alpha_x, alpha_y);
-    //float roughness = specular_roughness;
-
     // Compute NDF
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    //float D = microfacetEval(mR, roughness);
 
     // Compute shadowing-masking term
     float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
-    //float G2 = smithG2(winputR, woutputR, mR, roughness); // Shadow-masking function
 
     // Compute Fresnel factor for the dielectric reflection
     float F = FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl);
 
     // Thus evaluate BRDF.
     float f = F * D * G2 / max(4.0 * abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
-
-    // Apply non-physical Fresnel tint
-    vec3 tint = specular_weight * specular_color;
     return f * tint;
 }
 
@@ -85,13 +85,16 @@ vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
         return vec3(0.0);
     }
 
-    // Construct basis such that x, y are aligned with the T, B in the rotated frame
-    LocalFrameRotation rotation = getLocalFrameRotation(PI2 * specular_rotation);
-    vec3 winputR = localToRotated(winputL, rotation);
+    // Non-physical Fresnel tint to apply
+    vec3 tint = specular_weight * specular_color;
 
     // Compute the NDF roughnesses in the rotated frame
     float alpha_x, alpha_y;
     specular_ndf_roughnesses(alpha_x, alpha_y);
+
+    // Construct basis such that x, y are aligned with the T, B in the rotated frame
+    LocalFrameRotation rotation = getLocalFrameRotation(PI2 * specular_rotation);
+    vec3 winputR = localToRotated(winputL, rotation);
 
     // Sample local microfacet normal mR, according to Heitz "Sampling the GGX Distribution of Visible Normals"
     vec3 mR = ggx_ndf_sample(winputR, alpha_x, alpha_y, rndSeed);
@@ -120,9 +123,6 @@ vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
 
      // Thus evaluate BRDF.
     float f = F * D * G2 / max(4.0 * abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
-
-    // Apply non-physical Fresnel tint
-    vec3 tint = specular_weight * specular_color;
     return f * tint;
 }
 
@@ -148,6 +148,10 @@ float specular_brdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
         return 1.0;
     }
 
+    // Compute the NDF roughnesses in the rotated frame
+    float alpha_x, alpha_y;
+    specular_ndf_roughnesses(alpha_x, alpha_y);
+
     // Construct basis such that x, y are aligned with the T, B in the local, rotated frame
     LocalFrameRotation rotation = getLocalFrameRotation(PI2 * specular_rotation);
     vec3 winputR  = localToRotated(winputL,  rotation);
@@ -159,10 +163,6 @@ float specular_brdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
     // Discard backfacing microfacets
     if (dot(mR, winputR) * winputR.z < 0.0 || dot(mR, woutputR) * woutputR.z < 0.0)
         return PDF_EPSILON;
-
-    // Compute the NDF roughnesses in the rotated frame
-    float alpha_x, alpha_y;
-    specular_ndf_roughnesses(alpha_x, alpha_y);
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
@@ -179,8 +179,8 @@ vec3 specular_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL,
 {
     float n_exterior = 1.0;
     float n_interior = specular_ior;
-    float eta_ti = n_interior/n_exterior;
-    if (abs(eta_ti - 1.0) < IOR_EPSILON)
+    float eta = n_interior/n_exterior;
+    if (abs(eta - 1.0) < IOR_EPSILON)
     {
         // degenerate case of index-matched interface, BRDF goes to zero
         return vec3(0.0);

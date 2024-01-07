@@ -56,11 +56,9 @@ vec3 specular_btdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
 
     // Compute NDF
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    //float D = microfacetEval(mR, roughness);
 
     // Compute shadowing-masking term
     float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
-    //float G2 = smithG2(winputR, woutputR, mR, roughness); // Shadow-masking function
 
     // Compute Fresnel factor for the dielectric transmission (from that of the corresponding time-reversed reflection)
     float eta_ti_refl = 1.0 / eta_ti_photon;
@@ -106,7 +104,7 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
         woutputL = -winputL;
         pdf_woutputL = 1.0 / PDF_EPSILON;
         vec3 tint = (transmission_depth == 0.0) ? transmission_color : vec3(1.0);
-        return tint / (PDF_EPSILON * abs(woutputL.z));
+        return tint * pdf_woutputL / max(DENOM_TOLERANCE, abs(woutputL.z));
     }
 
     // Construct basis such that x, y are aligned with the T, B in the rotated frame
@@ -116,11 +114,9 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
     // Compute the NDF roughnesses in the rotated frame
     float alpha_x, alpha_y;
     specular_ndf_roughnesses(alpha_x, alpha_y);
-    //float roughness = specular_roughness;
 
     // Sample local microfacet normal mR, according to Heitz "Sampling the GGX Distribution of Visible Normals"
     vec3 mR = ggx_ndf_sample(winputR, alpha_x, alpha_y, rndSeed);
-    //vec3 mR = microfacetSample(rndSeed, roughness);
 
     // Compute the direction of the ray refracted through the microfacet, woutputL
     vec3 beamOutgoingR = winputR;
@@ -137,7 +133,6 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL,
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
     float DV = ggx_G1(winputR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) * D / max(DENOM_TOLERANCE, winputR.z);
-    //float D = microfacetEval(mR, roughness);
 
     // Compute Jacobian of the half-direction mapping
     float im = dot(-beamIncidentR, mR);
@@ -216,7 +211,6 @@ float specular_btdf_pdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
     // Compute the NDF roughnesses in the rotated frame
     float alpha_x, alpha_y;
     specular_ndf_roughnesses(alpha_x, alpha_y);
-    //float roughness = specular_roughness;
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
