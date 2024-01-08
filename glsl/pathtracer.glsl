@@ -33,9 +33,12 @@ vec2 boxIntersection( in vec3 ro, in vec3 rd, vec3 boxSize, out vec3 outNormal )
 bool intersect_shadercube(in vec3 rayOrigin, in vec3 rayDir, inout vec3 normal, inout float dist)
 {
     vec2 X = boxIntersection(rayOrigin-vec3(0.0, 4.0, 0.0), rayDir, vec3(3.5, 3.5, 3.5), normal);
-    if (X.x < 0.0)
+    if (X.x < 0.0 && X.y < 0.0)
         return false;
-    dist = X.x;
+    if (X.x < 0.0)
+        dist = X.y;
+    else
+        dist = X.x;
     return true;
 }
 #endif
@@ -125,36 +128,16 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir,
 
 float TraceShadow(in vec3 rayOrigin, in vec3 rayDir)
 {
-    float Transmittance = 1.0;
-    //while (Transmittance > TRANSMITTANCE_EPSILON)
-    {
-        int hitMaterial;
-        int material;
-        vec3 pW_hit, nsW_hit, ngW_hit, TsW_hit, baryCoord;
-        bool hit = trace(rayOrigin, rayDir, 
-                         pW_hit, nsW_hit, ngW_hit, TsW_hit, baryCoord, material);
-        if (hit)
-        {
-            return 0.0;
-            /*
-            float opacity;
-            if (geometry_thin_walled) opacity = geometry_opacity;
-            else                      opacity = 1.0;
-            if (material == MATERIAL_OPENPBR) Transmittance *= 1.0 - opacity;
-            else                              Transmittance = 0.0;
-            if (Transmittance > TRANSMITTANCE_EPSILON)
-                rayOrigin = pW_hit + ngW_hit * sign(dot(rayDir, ngW_hit)) * RAY_OFFSET;
-            */
-        }
-        else
-            return Transmittance;
-    }
-    return Transmittance;
+    int material;
+    vec3 pW, nsW, ngW, TsW, baryCoord;
+    bool hit = trace(rayOrigin, rayDir,
+                     pW, nsW, ngW, TsW, baryCoord, material);
+    return hit ? 0.0 : 1.0;
 }
 
 
 //////////////////////////////////////
-// Grey Lambertian scene BRDF
+// Grey Lambertian props BRDF
 //////////////////////////////////////
 
 vec3 grey_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
@@ -187,9 +170,9 @@ vec3 evaluateBsdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
 }
 
 vec3 sampleBsdf(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed, in int material,
-                out vec3 woutputL, out float pdfOut)
+                out vec3 woutputL, out float pdfOut, out Volume internal_medium)
 {
-    if (material == MATERIAL_OPENPBR) return openpbr_bsdf_sample(pW, basis, winputL, rndSeed, woutputL, pdfOut);
+    if (material == MATERIAL_OPENPBR) return openpbr_bsdf_sample(pW, basis, winputL, rndSeed, woutputL, pdfOut, internal_medium);
     else                              return    grey_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdfOut);
 }
 
@@ -267,65 +250,80 @@ void main()
                     pW, rayDir);
     rayDir = normalize(rayDir);
 
-    bool inDielectric = false;
-
     // Perform uni-directional pathtrace starting from the (pinhole) camera lens to estimate the primary ray radiance, L
     vec3 L = vec3(0.0);
     vec3 throughput = vec3(1.0);
     float misWeightSky = 1.0; // For MIS book-keeping
+
+    // Initialize volumetric medium of camera ray
+    // (NB, camera inside the interior is not handled properly here)
+    Volume exterior_medium;
+    exterior_medium.extinction = vec3(0.0);
+    exterior_medium.albedo     = vec3(0.0);
+    Volume current_medium = exterior_medium;
+
+    bool in_dielectric = false;
 
     for (int vertex=0; vertex < BOUNCES; vertex++)
     {
         if (maxComponent(throughput) < THROUGHPUT_EPSILON)
             break;
 
-        // Raycast along current propagation direction rayDir, from current vertex pW
-        int material;
-        vec3 pW_hit, NsW_hit, NgW_hit, TsW_hit, baryCoord_hit;
-        bool hit = trace(pW, rayDir,
-                         pW_hit, NsW_hit, NgW_hit, TsW_hit, baryCoord_hit, material);
-        /*
-        if (cutout(material, rndSeed))
+        // Generate next surface hit, given current vertex pW and current propagation direction rayDir
+        int material_next;
+        vec3 pW_next;
+        vec3 NsW_next;
+        vec3 NgW_next;
+        vec3 TsW_next;
+        vec3 baryCoord_next;
+
+        bool inside_volume            = maxComponent(current_medium.extinction) > FLT_EPSILON;
+        bool inside_scattering_volume = maxComponent(current_medium.albedo) > FLT_EPSILON && inside_volume;
+        if (!inside_scattering_volume)
         {
-            pW = pW_hit + rayDir*RAY_OFFSET;
-            hit = trace(pW, rayDir,
-                        pW_hit, NsW_hit, NgW_hit, TsW_hit, baryCoord, material);
+            // Raycast along current propagation direction rayDir, from current vertex pW
+            bool hit = trace(pW, rayDir,
+                             pW_next, NsW_next, NgW_next, TsW_next, baryCoord_next, material_next);
             if (!hit)
             {
-                // This ray missed all geometry; add contribution from distant lights and terminate path
-                L += throughput * environmentRadiance(rayDir);
+                // Add contribution from distant lights
+                //if (misWeightSky > 0.0)
+                {
+                    // Camera ray missed all geometry; add contribution from distant lights and terminate path
+                    //L += throughput * misWeightSky * environmentRadiance(rayDir);
+                    L += throughput * environmentRadiance(rayDir);
+                }
+                // Ray escapes to infinity
                 break;
             }
-            continue;
+
+            // Apply Beer-Lambert law for absorption
+            if (inside_volume)
+            {
+                float ray_length = length(pW_next - pW);
+                throughput *= exp(-ray_length * current_medium.extinction);
+            }
+        }
+
+        // Case of propagation through a scattering volume
+        /*
+        else
+        {
+            // Do analogue "random-walk" in the scattering medium
+            // hitting the boundary surface again (presumably, if the surface is closed)
+            // or terminating due to low throughput
+            // TODO.
         }
         */
 
-        if (!hit)
-        {
-            // Add contribution from distant lights
-            if (misWeightSky > 0.0)
-            {
-                // Camera ray missed all geometry; add contribution from distant lights and terminate path
-                L += throughput * misWeightSky * environmentRadiance(rayDir);
-            }
-
-            // Ray escapes to infinity
-            break;
-        }
-
-        // If the current ray lies inside a dielectric, apply Beer's law for absorption
-        if (inDielectric)
-        {
-            //throughput *= exp(-rayLength*absorption);
-        }
-
-        // Deal with the surface interaction at the current vertex.
+        // Update to the next surface vertex.
         // First, compute the normal and thus the local vertex basis:
-        pW             = pW_hit;
-        vec3 NsW       = NsW_hit;
-        vec3 NgW       = NgW_hit;
-        vec3 TsW       = TsW_hit;
-        vec3 baryCoord = baryCoord_hit;
+        pW             = pW_next;
+        vec3 NsW       = NsW_next;
+        vec3 NgW       = NgW_next;
+        vec3 TsW       = TsW_next;
+        vec3 baryCoord = baryCoord_next;
+        int material   = material_next;
 
         // Construct local shading frame
         Basis basis;
@@ -349,14 +347,11 @@ void main()
         // Sample BSDF for the next ray direction
         vec3 woutputL; // points *towards* the outgoing ray direction (opposite to photon)
         float bsdfPdf;
-        vec3 f = sampleBsdf(pW, basis, winputL, rndSeed, material, woutputL, bsdfPdf);
+        Volume internal_medium;
+        vec3 f = sampleBsdf(pW, basis, winputL, rndSeed, material, woutputL, bsdfPdf, internal_medium);
         vec3 woutputW = localToWorld(woutputL, basis);
 
-        bool transmitted = (dot(winputW, NgW) * dot(woutputW, NgW) < 0.0);
-        if (transmitted)
-            inDielectric = !inDielectric; // (assuming for simplicity that the dielectric objects are closed and non-intersecting)
-
-        // Add volumetric emission at the surface point, if present (treating it as an isotropic radiance field)
+        // Add emission from the surface point, if present
         //L += throughput * evaluateEdf(pW, basis, winputL);
 
         // Update ray direction to the BSDF-sampled direction
@@ -366,14 +361,36 @@ void main()
         pW += NgW * sign(dot(rayDir, NgW)) * RAY_OFFSET; // perturb vertex into geometric half-space of scattered ray
 
         // Add direct lighting term at the current surface vertex
+        /*
         float skyPdf = 0.0;
         if (!inDielectric)
+        {
             L += throughput * directSurfaceLighting(pW, basis, winputW, material, skyPdf, rndSeed);
+        }
+        */
 
         // Update path continuation throughput
         throughput *= f / max(PDF_EPSILON, bsdfPdf) * abs(dot(woutputW, basis.nW));
 
-        misWeightSky = balanceHeuristic(bsdfPdf, skyPdf); // compute sky MIS weight for bounce ray
+        // Check if a transmission has occurred, and update the current_medium accordingly.
+        bool transmitted = (material == MATERIAL_OPENPBR) && (dot(winputW, NgW) * dot(woutputW, NgW) < 0.0);
+        if (transmitted)
+        {
+            bool transmitted_inside = dot(woutputW, NgW) < 0.0;
+            if (transmitted_inside)
+            {
+                in_dielectric = true;
+                current_medium = internal_medium;
+            }
+            else
+            {
+                in_dielectric = false;
+                current_medium = exterior_medium;
+            }
+        }
+
+        // compute MIS weights for bounce ray
+        //misWeightSky = balanceHeuristic(bsdfPdf, skyPdf);
 
         // TODO: Russian roulette
 

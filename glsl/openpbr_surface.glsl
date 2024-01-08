@@ -85,12 +85,14 @@ void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout int
     // Opaque dielectric base //////////////////////
     vec3 w_opaque_dielectric_base = w_dielectric_base * (1.0 - transmission_weight);
 
+    // Subsurface BSSRDF
+    //  - the subsurface lobe is identical to the specular BTDF, apart from the associated internal volumetric medium
+    weights.m[ID_SSSC_BTDF] = w_opaque_dielectric_base * subsurface_weight;
+    albedos.m[ID_SSSC_BTDF] = (maxComponent(weights.m[ID_SSSC_BTDF]) > 0.0) ? albedos.m[ID_SPEC_BTDF] : vec3(0.0);
+
     // Diffuse BRDF
     weights.m[ID_DIFF_BRDF] = w_opaque_dielectric_base * (1.0 - subsurface_weight) * (vec3(1.0) - albedos.m[ID_SPEC_BRDF]);
     albedos.m[ID_DIFF_BRDF] = (maxComponent(weights.m[ID_DIFF_BRDF]) > 0.0) ? diffuse_brdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
-
-    // Subsurface BSSRDF
-    weights.m[ID_SSSC_BTDF] = w_opaque_dielectric_base * subsurface_weight;
 }
 
 
@@ -132,8 +134,8 @@ vec3 openpbr_bsdf_evaluate_lobes(in vec3 pW, in Basis basis, in vec3 winputL, in
     if (skip_lobe_id != ID_META_BRDF && lobe_probs.m[ID_META_BRDF] > 0.0) f += lobe_weights.m[ID_META_BRDF] *    metal_brdf_evaluate(pW, basis, winputL, woutputL, pdfs.m[ID_META_BRDF]);
     if (skip_lobe_id != ID_SPEC_BRDF && lobe_probs.m[ID_SPEC_BRDF] > 0.0) f += lobe_weights.m[ID_SPEC_BRDF] * specular_brdf_evaluate(pW, basis, winputL, woutputL, pdfs.m[ID_SPEC_BRDF]);
     if (skip_lobe_id != ID_SPEC_BTDF && lobe_probs.m[ID_SPEC_BTDF] > 0.0) f += lobe_weights.m[ID_SPEC_BTDF] * specular_btdf_evaluate(pW, basis, winputL, woutputL, pdfs.m[ID_SPEC_BTDF]);
+    if (skip_lobe_id != ID_SSSC_BTDF && lobe_probs.m[ID_SSSC_BTDF] > 0.0) f += lobe_weights.m[ID_SSSC_BTDF] * specular_btdf_evaluate(pW, basis, winputL, woutputL, pdfs.m[ID_SPEC_BTDF]);
     if (skip_lobe_id != ID_DIFF_BRDF && lobe_probs.m[ID_DIFF_BRDF] > 0.0) f += lobe_weights.m[ID_DIFF_BRDF] *  diffuse_brdf_evaluate(pW, basis, winputL, woutputL, pdfs.m[ID_DIFF_BRDF]);
-    //if (skip_lobe_id != ID_SSSC_BTDF && lobe_probs.m[ID_SSSC_BTDF] > 0.0) f += vec3(0.0);
     return f;
  }
 
@@ -162,7 +164,7 @@ vec3 openpbr_bsdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 
 
 
 vec3 openpbr_bsdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed,
-                         out vec3 woutputL, out float pdf_woutputL)
+                         out vec3 woutputL, out float pdf_woutputL, out Volume internal_medium)
 {
     // Sample a lobe according to these probabilities.
     // Also compute PDF of all other lobes in the sampled direction.
@@ -181,8 +183,9 @@ vec3 openpbr_bsdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int 
             else if (lobe_id==ID_META_BRDF) { f_lobe =    metal_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_lobe); }
             else if (lobe_id==ID_SPEC_BRDF) { f_lobe = specular_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_lobe); }
             else if (lobe_id==ID_SPEC_BTDF) { f_lobe = specular_btdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_lobe); }
+            else if (lobe_id==ID_SSSC_BTDF) { f_lobe = specular_btdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_lobe); }
             else if (lobe_id==ID_DIFF_BRDF) { f_lobe =  diffuse_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_lobe); }
-            else                            {}
+            else { break; }
 
             // Evaluate the value and PDF of all other lobes at the sampled woutputL
             LobePDFs pdfs;
@@ -193,6 +196,55 @@ vec3 openpbr_bsdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int 
 
             // Thus compute the value and PDF of the total BRDF, according to 1-sample MIS:
             pdf_woutputL = openpbr_bsdf_total_pdf(pdfs);
+
+            // If the specular BTDF or SSS lobe were sampled, producing a transmission into the object interior,
+            // we also populate the associated volumetric bulk medium
+            bool transmitted = woutputL.z * winputL.z < 0.0;
+            bool transmitted_inside = transmitted && woutputL.z < 0.0;
+            if (!transmitted_inside)
+                return f;
+
+            // But if the specular BTDF or SSS lobe were sampled, producing a transmission into the object interior,
+            // we also populate the associated volumetric bulk medium
+            if (lobe_id==ID_SPEC_BTDF)
+            {
+                // Set up the volumetric medium according to the "Translucent Base" section of the OpenPBR spec
+                if (transmission_depth > 0.0)
+                {
+                    vec3 mu_t = -log(transmission_color) / transmission_depth;
+                    vec3 mu_s = transmission_scatter / transmission_depth;
+                    vec3 mu_a = mu_t - mu_s;
+                    if (minComponent(mu_a) < 0.0)
+                        mu_a = mu_a - vec3(minComponent(mu_a));
+                    internal_medium.extinction = mu_a + mu_s;
+                    internal_medium.albedo = mu_s / (mu_a + mu_s);
+                    internal_medium.anisotropy = transmission_scatter_anisotropy;
+                }
+                else
+                    internal_medium.extinction = vec3(0.0);
+            }
+
+            // Set up the volumetric medium according to the "Subsurface" section of the OpenPBR spec
+            else if (lobe_id==ID_SSSC_BTDF)
+            {
+                vec3 A = subsurface_color;                                 // multi-scatter albedo
+                vec3 r = subsurface_radius * subsurface_radius_scale;      // diffusion radius
+                vec3 A2 = A*A;
+                vec3 A3 = A*A2;
+                vec3 A4 = A2*A2;
+                vec3 S = 4.012 - 15.21*A + 32.34*A2 - 34.68*A3 + 13.91*A4; // Hyperion scale factor
+                vec3 mu_t = 1.0 / max(vec3(DENOM_TOLERANCE), S * r);
+                vec3 alpha = 1.0 - exp(-11.43*A + 15.38*A2 - 13.91*A3);    // single-scattering albedo
+                float g = subsurface_anisotropy;
+                vec3 denom = (1.0 - g*(vec3(1.0) - alpha));
+                internal_medium.albedo     = alpha / denom;                    // remapped single-scattering albedo
+                internal_medium.extinction = denom / (1.0 - vec3(g)) * mu_t;   // remapped extinction
+                internal_medium.anisotropy = g;
+            }
+
+            // Specify also the Abbe number of the bulk dielectric, for dispersion effects
+            internal_medium.abbe_number = transmission_dispersion_abbe_number / max(DENOM_TOLERANCE, transmission_dispersion_scale);
+
             return f;
         }
     }

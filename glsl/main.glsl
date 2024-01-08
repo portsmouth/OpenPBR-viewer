@@ -202,7 +202,6 @@ Basis makeBasis(in vec3 nW, in vec3 tW, in vec3 baryCoord)
 }
 */
 
-
 vec3 worldToLocal(in vec3 vWorld, in Basis basis)
 {
     return vec3( dot(vWorld, basis.tW),
@@ -383,3 +382,17 @@ float ggx_G2(in vec3 woL, in vec3 wiL, float alpha_x, float alpha_y)
 {
     return 1.0 / (1.0 + ggx_lambda(woL, alpha_x, alpha_y) + ggx_lambda(wiL,  alpha_x, alpha_y));
 }
+
+
+/////////////////////////////////////////////////////////////////////////
+// Volumetrics
+/////////////////////////////////////////////////////////////////////////
+
+// Describes the internal volume of bulk transmissive media
+struct Volume
+{
+    vec3 extinction;    // units of inverse length
+    vec3 albedo;        // dimensional, single-scattering albedo
+    float anisotropy;   // phase function anisotropy in [-1, 1]
+    float abbe_number;  // dimensionless Abbe number for the embedding dielectric
+};
