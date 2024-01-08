@@ -158,7 +158,7 @@ function init()
 	renderer.outputEncoding = sRGBEncoding;
 	document.body.appendChild( renderer.domElement );
 
-    outputContainer = document.getElementById( 'output' );
+    outputContainer = document.getElementById('output');
 
 	// scene setup
 	scene = new Scene();
@@ -412,7 +412,7 @@ function setup(rtMaterial)
     const transmission_folder = material_folder.addFolder('Transmission');
     transmission_folder.add(params,      'transmission_weight', 0.0, 1.0).onChange(                   v => { rtMaterial.needsUpdate = true; resetSamples(); });
     transmission_folder.addColor(params, 'transmission_color').onChange(                              v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    transmission_folder.add(params,      'transmission_depth', 0.0, 1.0).onChange(                    v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    transmission_folder.add(params,      'transmission_depth', 0.0, 10.0).onChange(                    v => { rtMaterial.needsUpdate = true; resetSamples(); });
     transmission_folder.addColor(params, 'transmission_scatter').onChange(                            v => { rtMaterial.needsUpdate = true; resetSamples(); });
     transmission_folder.add(params,      'transmission_scatter_anisotropy', -1.0, 1.0).onChange(      v => { rtMaterial.needsUpdate = true; resetSamples(); });
     transmission_folder.add(params,      'transmission_dispersion_abbe_number', 9.0, 91.0).onChange(  v => { rtMaterial.needsUpdate = true; resetSamples(); });
