@@ -69,8 +69,19 @@ class MeshLoader
 
 const params = 
 {
-	smoothNormals: true,
-    bounces: 8,
+
+    //////////////////////////////////////////////////////
+    // renderer params
+    //////////////////////////////////////////////////////
+
+	smoothNormals:                      true,
+    bounces:                            8,
+    wireframe:                          true,
+    neutral_color:                      [0.5, 0.5, 0.5],
+
+    //////////////////////////////////////////////////////
+    // lighting params
+    //////////////////////////////////////////////////////
 
     sky_color_up:                        [1.0, 1.0, 1.0],
     sky_color_down:                      [0.5, 0.5, 0.5],
@@ -209,6 +220,13 @@ function init()
 			accumulation_weight:   { value: 1 },
 
             //////////////////////////////////////////////////////
+            // renderer
+            //////////////////////////////////////////////////////
+
+            wireframe:                           { value: params.wireframe, },
+            neutral_color:                       { value: new Vector3().fromArray(params.neutral_color) },
+
+            //////////////////////////////////////////////////////
             // lighting
             //////////////////////////////////////////////////////
 
@@ -293,7 +311,7 @@ function init()
     // initialize the scene and update the material properties with the bvh, materials, etc
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     const loader = new MeshLoader();
-    loader.load('standard-shader-ball/core_base_floor.gltf').then( () => {
+    loader.load('standard-shader-ball/neutral_objects.gltf').then( () => {
 
         scene.add(loader.result.scene);
         MESH_PROPS = loader.result.mesh;
@@ -315,7 +333,7 @@ function init()
         console.log("  has_tangents_scene: ", rtMaterial.uniforms.has_tangents_props);
 
         loader.reset();
-        loader.load('standard-shader-ball/shell.gltf').then( () => {
+        loader.load('standard-shader-ball/shaderball.gltf').then( () => {
 
             scene.add(loader.result.scene);
             MESH_SURFACE = loader.result.mesh;
@@ -412,7 +430,7 @@ function setup(rtMaterial)
     const transmission_folder = material_folder.addFolder('Transmission');
     transmission_folder.add(params,      'transmission_weight', 0.0, 1.0).onChange(                   v => { rtMaterial.needsUpdate = true; resetSamples(); });
     transmission_folder.addColor(params, 'transmission_color').onChange(                              v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    transmission_folder.add(params,      'transmission_depth', 0.0, 10.0).onChange(                    v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    transmission_folder.add(params,      'transmission_depth', 0.0, 1.0).onChange(                    v => { rtMaterial.needsUpdate = true; resetSamples(); });
     transmission_folder.addColor(params, 'transmission_scatter').onChange(                            v => { rtMaterial.needsUpdate = true; resetSamples(); });
     transmission_folder.add(params,      'transmission_scatter_anisotropy', -1.0, 1.0).onChange(      v => { rtMaterial.needsUpdate = true; resetSamples(); });
     transmission_folder.add(params,      'transmission_dispersion_abbe_number', 9.0, 91.0).onChange(  v => { rtMaterial.needsUpdate = true; resetSamples(); });
@@ -463,6 +481,8 @@ function setup(rtMaterial)
         rtMaterial.needsUpdate = true;
         resetSamples();
     });
+    renderer_folder.add( params, 'wireframe' ).onChange(                                              v => { rtQuad.material.needsUpdate = true; resetSamples(); });
+    renderer_folder.addColor(params, 'neutral_color').onChange(                                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
     renderer_folder.close();
 
     gui.open(); 
@@ -533,16 +553,20 @@ function render()
         const w = window.innerWidth;
         const h = window.innerHeight;
 
-		const seed = samples*w*h % 31415926;
-		uniforms.seed.value = seed;
-        uniforms.accumulation_weight.value = 1.0 / (samples + 1.0); // implements Monte-Carlo accumulation
-
+        // sync camera
 		uniforms.cameraWorldMatrix.value.copy( camera.matrixWorld );
 		uniforms.invProjectionMatrix.value.copy( camera.projectionMatrixInverse );
 		uniforms.invModelMatrix.value.copy( scene.matrixWorld ).invert();
 
+        // sync renderer params
         let resolution = new Vector2(w, h);
         uniforms.resolution.value.copy(resolution);
+		const seed = samples*w*h % 31415926;
+        uniforms.accumulation_weight.value                    = 1.0 / (samples + 1.0); // implements Monte-Carlo accumulation
+		uniforms.seed.value                                   = seed;
+
+        uniforms.wireframe.value                              = params.wireframe;
+        uniforms.neutral_color.value.copy(get_vector3(          params.neutral_color));
 
         // sync material params
         uniforms.base_weight.value                            = params.base_weight;

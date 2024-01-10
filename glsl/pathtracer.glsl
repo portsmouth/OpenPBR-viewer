@@ -136,26 +136,26 @@ float TraceShadow(in vec3 rayOrigin, in vec3 rayDir)
 }
 
 
-//////////////////////////////////////
-// Grey Lambertian props BRDF
-//////////////////////////////////////
+////////////////////////////////////////////////
+// "Neutral" color Lambertian BRDF for props
+////////////////////////////////////////////////
 
-vec3 grey_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
+vec3 neutral_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
                         inout float pdf_woutputL)
 {
     pdf_woutputL = pdfHemisphereCosineWeighted(winputL);
     if (winputL.z < 0.0 || woutputL.z < 0.0) return vec3(0.0);
-    if (minComponent(basis.baryCoord) < 0.01) return vec3(0.0);
-    return vec3(0.5)/PI;
+    if (wireframe && minComponent(basis.baryCoord) < 0.01) return vec3(0.0);
+    return neutral_color/PI;
 }
 
-vec3 grey_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed,
+vec3 neutral_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed,
                         out vec3 woutputL, out float pdf_woutputL)
 {
     woutputL = sampleHemisphereCosineWeighted(rndSeed, pdf_woutputL);
     if (winputL.z < 0.0) return vec3(0.0);
-    if (minComponent(basis.baryCoord) < 0.01) return vec3(0.0);
-    return vec3(0.5)/PI;
+    if (wireframe && minComponent(basis.baryCoord) < 0.01) return vec3(0.0);
+    return neutral_color/PI;
 }
 
 //////////////////////////////////////
@@ -166,14 +166,14 @@ vec3 evaluateBsdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
                   inout float pdf_woutputL)
 {
     if (material == MATERIAL_OPENPBR) return openpbr_bsdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
-    else                              return    grey_brdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
+    else                              return neutral_brdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
 }
 
 vec3 sampleBsdf(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed, in int material,
                 out vec3 woutputL, out float pdfOut, out Volume internal_medium)
 {
     if (material == MATERIAL_OPENPBR) return openpbr_bsdf_sample(pW, basis, winputL, rndSeed, woutputL, pdfOut, internal_medium);
-    else                              return    grey_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdfOut);
+    else                              return neutral_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdfOut);
 }
 
 
@@ -287,11 +287,11 @@ void main()
             if (!hit)
             {
                 // Add contribution from distant lights
-                //if (misWeightSky > 0.0)
+                if (misWeightSky > 0.0)
                 {
                     // Camera ray missed all geometry; add contribution from distant lights and terminate path
-                    //L += throughput * misWeightSky * environmentRadiance(rayDir);
-                    L += throughput * environmentRadiance(rayDir);
+                    L += throughput * misWeightSky * environmentRadiance(rayDir);
+                    //L += throughput * environmentRadiance(rayDir);
                 }
                 // Ray escapes to infinity
                 break;
@@ -327,6 +327,9 @@ void main()
 
         // Construct local shading frame
         Basis basis;
+
+        // TODO: orient local basis so that N points from the surface interior to the exterior
+
         #if SMOOTH_NORMALS
             // If the surface is opaque, but the incident ray lies below the hemisphere of the normal,
             // which can occur due to shading normals, apply the "Flipping hack" to prevent artifacts
@@ -361,13 +364,11 @@ void main()
         pW += NgW * sign(dot(rayDir, NgW)) * RAY_OFFSET; // perturb vertex into geometric half-space of scattered ray
 
         // Add direct lighting term at the current surface vertex
-        /*
         float skyPdf = 0.0;
-        if (!inDielectric)
+        if (!in_dielectric)
         {
             L += throughput * directSurfaceLighting(pW, basis, winputW, material, skyPdf, rndSeed);
         }
-        */
 
         // Update path continuation throughput
         throughput *= f / max(PDF_EPSILON, bsdfPdf) * abs(dot(woutputW, basis.nW));
@@ -376,6 +377,12 @@ void main()
         bool transmitted = (material == MATERIAL_OPENPBR) && (dot(winputW, NgW) * dot(woutputW, NgW) < 0.0);
         if (transmitted)
         {
+            in_dielectric = !in_dielectric;
+            if (in_dielectric)
+                current_medium = internal_medium;
+            else
+                current_medium = exterior_medium;
+            /*
             bool transmitted_inside = dot(woutputW, NgW) < 0.0;
             if (transmitted_inside)
             {
@@ -387,10 +394,11 @@ void main()
                 in_dielectric = false;
                 current_medium = exterior_medium;
             }
+            */
         }
 
         // compute MIS weights for bounce ray
-        //misWeightSky = balanceHeuristic(bsdfPdf, skyPdf);
+        misWeightSky = balanceHeuristic(bsdfPdf, skyPdf);
 
         // TODO: Russian roulette
 
