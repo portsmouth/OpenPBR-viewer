@@ -18,6 +18,8 @@ uniform BVH bvh_props;
 
 uniform float accumulation_weight;
 uniform float seed;
+uniform bool wireframe;
+uniform vec3 neutral_color;
 
 varying vec2 vUv;
 
