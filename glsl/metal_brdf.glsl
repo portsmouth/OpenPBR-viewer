@@ -80,7 +80,8 @@ vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int rn
 
     // Compute woutputR (and thus woutputL) by reflecting winputR about mR
     vec3 woutputR = -winputR + 2.0*dot(winputR, mR)*mR;
-    if (woutputR.z < DENOM_TOLERANCE) return vec3(0.0);
+    if (winputR.z * woutputR.z < 0.0)
+        woutputR *= -1.0; // flip if reflected ray direction in wrong hemisphere (in absence of a multi-scatter approx. currently)
     woutputL = rotatedToLocal(woutputR, rotation);
 
     // Compute NDF, and "distribution of visible normals" DV
@@ -99,7 +100,7 @@ vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int rn
 
     // Thus evaluate BRDF
     return F * D * G2 / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
-}          
+}
 
 
 vec3 metal_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed)
