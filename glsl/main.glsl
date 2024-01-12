@@ -1,8 +1,19 @@
 
+//////////////////////////////////////////////////////
+// camera uniforms
+//////////////////////////////////////////////////////
+
 uniform mat4 cameraWorldMatrix;
 uniform mat4 invProjectionMatrix;
 uniform mat4 invModelMatrix;
 uniform vec2 resolution;
+
+//////////////////////////////////////////////////////
+// geometry uniforms
+//////////////////////////////////////////////////////
+
+uniform BVH bvh_surface;
+uniform BVH bvh_props;
 
 uniform sampler2D normalAttribute_surface;
 uniform sampler2D normalAttribute_props;
@@ -13,15 +24,15 @@ uniform bool has_tangents_surface;
 uniform bool has_normals_props;
 uniform bool has_tangents_props;
 
-uniform BVH bvh_surface;
-uniform BVH bvh_props;
+//////////////////////////////////////////////////////
+// renderer uniforms
+//////////////////////////////////////////////////////
 
 uniform float accumulation_weight;
 uniform float seed;
 uniform bool wireframe;
 uniform vec3 neutral_color;
-
-varying vec2 vUv;
+uniform bool smooth_normals;
 
 //////////////////////////////////////////////////////
 // material uniforms
@@ -76,6 +87,10 @@ uniform bool geometry_thin_walled;
 uniform vec3 sky_color_up;
 uniform vec3 sky_color_down;
 
+//////////////////////////////////////////////////////
+// UVs
+//////////////////////////////////////////////////////
+varying vec2 vUv;
 
 //////////////////////////////////////////////////////
 // useful constants
@@ -90,7 +105,7 @@ const float RECIPROCAL_PI2        = 0.15915494309189535;
 // tolerances
 const float HUGE_DIST             = 1.0e20;
 const float RAY_OFFSET            = 1.0e-4;
-const float DENOM_TOLERANCE       = 1.0e-20;
+const float DENOM_TOLERANCE       = 1.0e-12;
 const float RADIANCE_EPSILON      = 1.0e-12;
 const float TRANSMITTANCE_EPSILON = 1.0e-4;
 const float THROUGHPUT_EPSILON    = 1.0e-6;
@@ -133,9 +148,10 @@ float cosTheta2( in vec3 w)  { return w.z*w.z; }
 float cosTheta(  in vec3 w)  { return w.z; }
 float sinTheta2( in vec3 w)  { return 1.0 - cosTheta2(w); }
 float sinTheta(  in vec3 w)  { return sqrt(max(0.0, sinTheta2(w))); }
+float tanTheta2(in vec3 nLocal) { float ct2 = cosTheta2(nLocal); return max(0.0, 1.0 - ct2) / max(ct2, DENOM_TOLERANCE); }
+float tanTheta(in vec3 nLocal)  { return sqrt(max(0.0, tanTheta2(nLocal))); }
 float cosPhi(in vec3 w) { float S = sinTheta(w); return (S == 0.0) ? 1.0 : clamp(w.x / S, -1.0, 1.0); }
 float sinPhi(in vec3 w) { float S = sinTheta(w); return (S == 0.0) ? 1.0 : clamp(w.y / S, -1.0, 1.0); }
-
 
 /////////////////////////////////////////////////////////////////////////
 // RNG
@@ -341,7 +357,8 @@ float ggx_ndf_eval(in vec3 m, in float alpha_x, in float alpha_y)
 }
 
 // GGX NDF sampling routine, as described in
-//  "Sampling Visible GGX Normals with Spherical Caps", Dupuy et al., HPG 2023
+//  "Sampling Visible GGX Normals with Spherical Caps", Dupuy et al., HPG 2023.
+// NB, this assumes wiL is in the +z hemisphere, and returns a sampled micronormal in that hemisphere.
 vec3 ggx_ndf_sample(in vec3 wiL, float alpha_x, float alpha_y, inout int rndSeed)
 {
     vec2 Xi = vec2(rand(rndSeed), rand(rndSeed));
@@ -370,7 +387,7 @@ vec3 ggx_ndf_sample(in vec3 wiL, float alpha_x, float alpha_y, inout int rndSeed
 
 float ggx_lambda(in vec3 w, float alpha_x, float alpha_y)
 {
-    if (w.z < FLT_EPSILON) return 0.0;
+    if (abs(w.z) < FLT_EPSILON) return 0.0;
     return (-1.0 + sqrt(1.0 + (sqr(alpha_x*w.x) + sqr(alpha_y*w.y))/sqr(w.z))) / 2.0;
 }
 
@@ -386,6 +403,60 @@ float ggx_G2(in vec3 woL, in vec3 wiL, float alpha_x, float alpha_y)
 }
 
 
+
+///////////////////////////////////
+// for debug
+///////////////////////////////////
+
+// m = the microfacet normal (in the local space where z = the macrosurface normal)
+float microfacetEval(in vec3 m, in float roughness)
+{
+    float t2 = tanTheta2(m);
+    float c2 = cosTheta2(m);
+    float roughnessSqr = roughness*roughness;
+    float epsilon = 1.0e-9;
+    float exponent = t2 / max(roughnessSqr, epsilon);
+    float D = exp(-exponent) / max(PI*roughnessSqr*c2*c2, epsilon);
+    return D;
+}
+
+// m = the microfacet normal (in the local space where z = the macrosurface normal)
+vec3 microfacetSample(inout int rndSeed, in float roughness)
+{
+    float phiM = (2.0 * PI) * rand(rndSeed);
+    float cosPhiM = cos(phiM);
+    float sinPhiM = sin(phiM);
+    float epsilon = 1.0e-9;
+    float tanThetaMSqr = -roughness*roughness * log(max(epsilon, rand(rndSeed)));
+    float cosThetaM = 1.0 / sqrt(1.0 + tanThetaMSqr);
+    float sinThetaM = sqrt(max(0.0, 1.0 - cosThetaM*cosThetaM));
+    return safe_normalize(vec3(sinThetaM*cosPhiM, sinThetaM*sinPhiM, cosThetaM));
+}
+
+float microfacetPDF(in vec3 m, in float roughness)
+{
+    return microfacetEval(m, roughness) * abs(cosTheta(m));
+}
+
+// Shadow-masking function
+// Approximation from Walter et al (v = arbitrary direction, m = microfacet normal)
+float smithG1(in vec3 vLocal, in vec3 mLocal, float roughness)
+{
+    float tanThetaAbs = abs(tanTheta(vLocal));
+    float epsilon = 1.0e-6;
+    if (tanThetaAbs < epsilon) return 1.0; // perpendicular incidence -- no shadowing/masking
+    //if (dot(vLocal, mLocal) * vLocal.z <= 0.0) return 0.0; // Back side is not visible from the front side, and the reverse.
+    float a = 1.0 / (max(roughness, epsilon) * tanThetaAbs); // Rational approximation to the shadowing/masking function (Walter et al)  (<0.35% rel. error)
+    if (a >= 1.6) return 1.0;
+    float aSqr = a*a;
+    return (3.535*a + 2.181*aSqr) / (1.0 + 2.276*a + 2.577*aSqr);
+}
+
+float smithG2(in vec3 woL, in vec3 wiL, in vec3 mLocal, float roughness)
+{
+    return smithG1(woL, mLocal, roughness) * smithG1(wiL, mLocal, roughness);
+}
+
 /////////////////////////////////////////////////////////////////////////
 // Volumetrics
 /////////////////////////////////////////////////////////////////////////
@@ -398,3 +469,5 @@ struct Volume
     float anisotropy;   // phase function anisotropy in [-1, 1]
     float abbe_number;  // dimensionless Abbe number for the embedding dielectric
 };
+
+

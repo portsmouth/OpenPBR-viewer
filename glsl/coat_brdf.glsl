@@ -54,7 +54,7 @@ vec3 coat_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
 
     // Compute the micronormal mR in the local (rotated) frame, from the reflection half-vector
     vec3 mR = normalize(woutputR + winputR);
-    
+
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
     float DV = D * ggx_G1(winputR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) / winputR.z;
@@ -101,18 +101,40 @@ vec3 coat_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int rnd
 
     // Sample local microfacet normal mR, according to Heitz "Sampling the GGX Distribution of Visible Normals"
     vec3 mR = ggx_ndf_sample(winputR, alpha_x, alpha_y, rndSeed);
+    if (winputR.z > 0.0)
+        mR = ggx_ndf_sample(winputR, alpha_x, alpha_y, rndSeed);
+    else
+    {
+        pdf_woutputL = 1.0;
+        return vec3(0.0);
+        /*
+        // TODO: allowing coat internal reflection seems to generate excessive fireflies, why?
+        vec3 winputR_reflected = winputR;
+        winputR_reflected.z *= -1.0;
+        mR = ggx_ndf_sample(winputR_reflected, alpha_x, alpha_y, rndSeed);
+        mR.z *= -1.0;
+        */
+    }
 
     // Compute woutputR (and thus woutputL) by reflecting winputR about mR
     vec3 woutputR = -winputR + 2.0*dot(winputR, mR)*mR;
-    if (woutputR.z * woutputR.z < 0.0)
-        woutputR *= -1.0; // flip if reflected ray direction in wrong hemisphere (in absence of a multi-scatter approx. currently)
+    if (winputR.z * woutputR.z < 0.0)
+    {
+        pdf_woutputL = 1.0;
+        return vec3(0.0);
+    }
+        //woutputR *= -1.0; // flip if reflected ray direction in wrong hemisphere (in absence of a multi-scatter approx. currently)
+
 
     // Rotate woutputR back to local space
     woutputL = rotatedToLocal(woutputR, rotation);
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float DV = D * ggx_G1(winputR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) / max(DENOM_TOLERANCE, winputR.z);
+    float DV = D * ggx_G1(winputR, alpha_x, alpha_y) * abs(dot(winputR, mR)) / max(DENOM_TOLERANCE, abs(winputR.z));
+
+    // Compute shadowing-masking term
+    float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
 
     // Thus compute PDF of woutputL sample
     float dwh_dwo = 1.0 / max(abs(4.0*dot(winputR, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
@@ -122,7 +144,7 @@ vec3 coat_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int rnd
     float F = FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl);
 
     // Thus evaluate BRDF
-    vec3 f = vec3(F) * D * ggx_G2(winputR, woutputR, alpha_x, alpha_y) / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
+    vec3 f = vec3(F) * D * G2 / max(4.0 * abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
     return f;
 }
 
@@ -140,7 +162,7 @@ vec3 coat_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout int rnd
     }
 
     // Approximate albedo via Monte-Carlo sampling:
-    const int num_samples = 1;
+    const int num_samples = 4;
     vec3 albedo = vec3(0.0);
     for (int n=0; n<num_samples; ++n)
     {

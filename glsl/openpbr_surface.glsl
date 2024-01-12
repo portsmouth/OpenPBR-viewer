@@ -15,19 +15,19 @@ const int NUM_LOBES    = 7;
 
 // Weight multipliers of individual BSDF lobes
 struct LobeWeights
-{   
+{
     vec3 m[7];
 };
 
 // Albedos of individual BDSF lobes
 struct LobeAlbedos
-{ 
+{
     vec3 m[7];
 };
 
 // Probabilities of individual BDSF lobes
 struct LobeProbs
-{ 
+{
     float m[7];
 };
 
@@ -58,7 +58,7 @@ void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout int
     else                                             albedos.m[ID_FUZZ_BRDF] = vec3(0.0);
 
     // Coated base //////////////////////
-    vec3 w_coated_base = vec3(1.0); //mix(vec3(1.0), vec3(1.0) - albedos.a_fuzz_brdf, F)
+    vec3 w_coated_base = vec3(1.0); //mix(vec3(1.0), vec3(1.0) - albedos.m[ID_FUZZ_BRDF], fuzz_weight);
 
     // Coat BRDF
     weights.m[ID_COAT_BRDF] = w_coated_base * coat_weight;
@@ -134,7 +134,7 @@ vec3 openpbr_bsdf_evaluate_lobes(in vec3 pW, in Basis basis, in vec3 winputL, in
     if (skip_lobe_id != ID_META_BRDF && lobe_probs.m[ID_META_BRDF] > 0.0) f += lobe_weights.m[ID_META_BRDF] *    metal_brdf_evaluate(pW, basis, winputL, woutputL, pdfs.m[ID_META_BRDF]);
     if (skip_lobe_id != ID_SPEC_BRDF && lobe_probs.m[ID_SPEC_BRDF] > 0.0) f += lobe_weights.m[ID_SPEC_BRDF] * specular_brdf_evaluate(pW, basis, winputL, woutputL, pdfs.m[ID_SPEC_BRDF]);
     if (skip_lobe_id != ID_SPEC_BTDF && lobe_probs.m[ID_SPEC_BTDF] > 0.0) f += lobe_weights.m[ID_SPEC_BTDF] * specular_btdf_evaluate(pW, basis, winputL, woutputL, pdfs.m[ID_SPEC_BTDF]);
-    if (skip_lobe_id != ID_SSSC_BTDF && lobe_probs.m[ID_SSSC_BTDF] > 0.0) f += lobe_weights.m[ID_SSSC_BTDF] * specular_btdf_evaluate(pW, basis, winputL, woutputL, pdfs.m[ID_SPEC_BTDF]);
+    //if (skip_lobe_id != ID_SSSC_BTDF && lobe_probs.m[ID_SSSC_BTDF] > 0.0) f += lobe_weights.m[ID_SSSC_BTDF] * specular_btdf_evaluate(pW, basis, winputL, woutputL, pdfs.m[ID_SPEC_BTDF]);
     if (skip_lobe_id != ID_DIFF_BRDF && lobe_probs.m[ID_DIFF_BRDF] > 0.0) f += lobe_weights.m[ID_DIFF_BRDF] *  diffuse_brdf_evaluate(pW, basis, winputL, woutputL, pdfs.m[ID_DIFF_BRDF]);
     return f;
  }
@@ -183,7 +183,7 @@ vec3 openpbr_bsdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int 
             else if (lobe_id==ID_META_BRDF) { f_lobe =    metal_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_lobe); }
             else if (lobe_id==ID_SPEC_BRDF) { f_lobe = specular_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_lobe); }
             else if (lobe_id==ID_SPEC_BTDF) { f_lobe = specular_btdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_lobe); }
-            else if (lobe_id==ID_SSSC_BTDF) { f_lobe = specular_btdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_lobe); }
+            //else if (lobe_id==ID_SSSC_BTDF) { f_lobe = specular_btdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_lobe); }
             else if (lobe_id==ID_DIFF_BRDF) { f_lobe =  diffuse_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_lobe); }
             else { break; }
 

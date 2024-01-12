@@ -32,7 +32,7 @@ vec2 boxIntersection( in vec3 ro, in vec3 rd, vec3 boxSize, out vec3 outNormal )
 }
 bool intersect_shadercube(in vec3 rayOrigin, in vec3 rayDir, inout vec3 normal, inout float dist)
 {
-    vec2 X = boxIntersection(rayOrigin-vec3(0.0, 4.0, 0.0), rayDir, vec3(3.5, 3.5, 3.5), normal);
+    vec2 X = boxIntersection(rayOrigin-vec3(0.0, 4.0, 0.0), rayDir, vec3(2.5, 2.5, 2.5), normal);
     if (X.x < 0.0 && X.y < 0.0)
         return false;
     if (X.x < 0.0)
@@ -88,7 +88,6 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir,
             const bool flip_normals = false;
             if (flip_normals)
                 Ns *= -1.0;
-            if (dot(Ns, Ng) < 0.0) Ns *= -1.0; // align geometric normal into same hemisphere as shading normal, if supplied
         }
         else
             Ns = Ng;
@@ -114,7 +113,6 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir,
             if (flip_normals)
                 Ns *= -1.0;
             Ns = textureSampleBarycoord(normalAttribute_props, barycoord_props, faceIndices_props.xyz).xyz;
-            if (dot(Ns, Ng) < 0.0) Ns *= -1.0; // align geometric normal into same hemisphere as shading normal, if supplied
         }
         else
             Ns = Ng;
@@ -122,7 +120,7 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir,
         //else
             Ts = normalToTangent(Ns);
 #endif
-    }                
+    }
     return true;
 }
 
@@ -162,7 +160,7 @@ vec3 neutral_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int 
 // BSDF dispatch
 //////////////////////////////////////
 
-vec3 evaluateBsdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL, in int material, 
+vec3 evaluateBsdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL, in int material,
                   inout float pdf_woutputL)
 {
     if (material == MATERIAL_OPENPBR) return openpbr_bsdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
@@ -178,7 +176,7 @@ vec3 sampleBsdf(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed, 
 
 
 /////////////////////////////////////////////////////////////////////////
-// lighting 
+// lighting
 /////////////////////////////////////////////////////////////////////////
 
 vec3 environmentRadiance(in vec3 dir)
@@ -188,7 +186,7 @@ vec3 environmentRadiance(in vec3 dir)
     return skyColor;
 }
 
-vec3 sampleSkyAtSurface(in Basis basis, 
+vec3 sampleSkyAtSurface(in Basis basis,
                         out vec3 woutputL, out vec3 woutputW, out float pdfDir,
                         inout int rndSeed)
 {
@@ -225,7 +223,7 @@ vec3 directSurfaceLighting(in vec3 pW, in Basis basis, in vec3 winputW, in int m
 
 
 /////////////////////////////////////////////////////////////////////////
-// pathtracer 
+// pathtracer
 /////////////////////////////////////////////////////////////////////////
 
 void main()
@@ -291,7 +289,6 @@ void main()
                 {
                     // Camera ray missed all geometry; add contribution from distant lights and terminate path
                     L += throughput * misWeightSky * environmentRadiance(rayDir);
-                    //L += throughput * environmentRadiance(rayDir);
                 }
                 // Ray escapes to infinity
                 break;
@@ -325,21 +322,36 @@ void main()
         vec3 baryCoord = baryCoord_next;
         int material   = material_next;
 
+        if (material == MATERIAL_OPENPBR)
+        {
+            // Orient local shading normal so that it points from the surface interior to the exterior
+            if ( (in_dielectric && dot(NsW, rayDir) < 0.0) ||
+                (!in_dielectric && dot(NsW, rayDir) > 0.0))
+            {
+                NsW *= -1.0;
+            }
+        }
+        else
+        {
+            // Otherwise surface is opaque, must be approaching from the exterior
+            if (dot(NsW, rayDir) > 0.0)
+                NsW *= -1.0;
+        }
+
+        // Align geometric normal into same hemisphere as shading normal
+        if (dot(NgW, NsW) < 0.0) NgW *= -1.0;
+
         // Construct local shading frame
         Basis basis;
-
-        // TODO: orient local basis so that N points from the surface interior to the exterior
-
-        #if SMOOTH_NORMALS
+        if (smooth_normals)
             // If the surface is opaque, but the incident ray lies below the hemisphere of the normal,
             // which can occur due to shading normals, apply the "Flipping hack" to prevent artifacts
             // (see Schüßler, "Microfacet-based Normal Mapping for Robust Monte Carlo Path Tracing")
-            if (dot(NsW, rayDir) > 0.0)
-                NsW = 2.0*NgW*dot(NgW, NsW) - NsW;
+            //if (dot(NsW, rayDir) > 0.0)
+            //    NsW = 2.0*NgW*dot(NgW, NsW) - NsW;
             basis = makeBasis(NsW, baryCoord);
-        #else
+        else
             basis = makeBasis(NgW, baryCoord);
-        #endif
         vec3 winputW = -rayDir; // winputW, points *towards* the incident direction (parallel to photon)
         vec3 winputL = worldToLocal(winputW, basis);
 
@@ -364,11 +376,9 @@ void main()
         pW += NgW * sign(dot(rayDir, NgW)) * RAY_OFFSET; // perturb vertex into geometric half-space of scattered ray
 
         // Add direct lighting term at the current surface vertex
-        float skyPdf = 0.0;
-        if (!in_dielectric)
-        {
-            L += throughput * directSurfaceLighting(pW, basis, winputW, material, skyPdf, rndSeed);
-        }
+        //float skyPdf = 0.0;
+        //if (!in_dielectric)
+        //    L += throughput * directSurfaceLighting(pW, basis, winputW, material, skyPdf, rndSeed);
 
         // Update path continuation throughput
         throughput *= f / max(PDF_EPSILON, bsdfPdf) * abs(dot(woutputW, basis.nW));
@@ -382,23 +392,10 @@ void main()
                 current_medium = internal_medium;
             else
                 current_medium = exterior_medium;
-            /*
-            bool transmitted_inside = dot(woutputW, NgW) < 0.0;
-            if (transmitted_inside)
-            {
-                in_dielectric = true;
-                current_medium = internal_medium;
-            }
-            else
-            {
-                in_dielectric = false;
-                current_medium = exterior_medium;
-            }
-            */
         }
 
         // compute MIS weights for bounce ray
-        misWeightSky = balanceHeuristic(bsdfPdf, skyPdf);
+        //misWeightSky = balanceHeuristic(bsdfPdf, skyPdf);
 
         // TODO: Russian roulette
 

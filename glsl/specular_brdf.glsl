@@ -117,26 +117,44 @@ vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int
     vec3 winputR = localToRotated(winputL, rotation);
 
     // Sample local microfacet normal mR, according to Heitz "Sampling the GGX Distribution of Visible Normals"
-    vec3 mR = ggx_ndf_sample(winputR, alpha_x, alpha_y, rndSeed);
+    //vec3 mR = ggx_ndf_sample(winputR, alpha_x, alpha_y, rndSeed);
+    vec3 mR;
+    if (winputR.z > 0.0)
+        mR = ggx_ndf_sample(winputR, alpha_x, alpha_y, rndSeed);
+        //mR = microfacetSample(rndSeed, alpha_x);
+    else
+    {
+        vec3 winputR_reflected = winputR;
+        winputR_reflected.z *= -1.0;
+        mR = ggx_ndf_sample(winputR_reflected, alpha_x, alpha_y, rndSeed);
+        //mR = microfacetSample(rndSeed, alpha_x);
+        mR.z *= -1.0;
+    }
 
     // Compute woutputR (and thus woutputL) by reflecting winputR about mR
     vec3 woutputR = -winputR + 2.0*dot(winputR, mR)*mR;
-    if (woutputR.z * woutputR.z < 0.0)
-        woutputR *= -1.0; // flip if reflected ray direction in wrong hemisphere (in absence of a multi-scatter approx. currently)
+    if (winputR.z * woutputR.z < 0.0)
+    {
+        pdf_woutputL = 1.0;
+        return vec3(0.0);
+    }
 
     // Rotate woutputR back to local space
     woutputL = rotatedToLocal(woutputR, rotation);
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float DV = D * ggx_G1(winputR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) / max(DENOM_TOLERANCE, winputR.z);
+    //float D = microfacetEval(mR, alpha_x);
+    float DV = D * ggx_G1(winputR, alpha_x, alpha_y) * abs(dot(winputR, mR)) / max(DENOM_TOLERANCE, abs(winputR.z));
 
     // Thus compute PDF of woutputL sample
     float dwh_dwo = 1.0 / max(abs(4.0*dot(winputR, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
     pdf_woutputL = DV * dwh_dwo;
+    //pdf_woutputL = microfacetPDF(mR, alpha_x) * dwh_dwo;
 
     // Compute shadowing-masking term
     float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
+    //float G2 = smithG2(woutputR, winputR, mR, alpha_x);
 
     // Compute Fresnel factor for the dielectric reflection
     float F = FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl);
@@ -160,7 +178,7 @@ vec3 specular_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout int
     }
 
     // Approximate albedo via Monte-Carlo sampling:
-    const int num_samples = 1;
+    const int num_samples = 4;
     vec3 albedo = vec3(0.0);
     for (int n=0; n<num_samples; ++n)
     {

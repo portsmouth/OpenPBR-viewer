@@ -74,7 +74,7 @@ const params =
     // renderer params
     //////////////////////////////////////////////////////
 
-	smoothNormals:                      true,
+	smooth_normals:                     true,
     bounces:                            8,
     wireframe:                          true,
     neutral_color:                      [0.5, 0.5, 0.5],
@@ -192,7 +192,6 @@ function init()
         
         defines: 
         {
-            SMOOTH_NORMALS: 1,
             SURFACE_IS_SHADERCUBE: 0,
             BOUNCES: params.bounces,
         },
@@ -225,6 +224,7 @@ function init()
 
             wireframe:                           { value: params.wireframe, },
             neutral_color:                       { value: new Vector3().fromArray(params.neutral_color) },
+            smooth_normals:                      { value: params.smooth_normals, },
 
             //////////////////////////////////////////////////////
             // lighting
@@ -471,16 +471,8 @@ function setup(rtMaterial)
     lighting_folder.close();
 
     const renderer_folder = gui.addFolder('Renderer');
-    renderer_folder.add( params, 'smoothNormals' ).onChange( v => {
-        rtQuad.material.defines.SMOOTH_NORMALS = Number( v );
-        rtQuad.material.needsUpdate = true;
-        resetSamples();
-    });
-    renderer_folder.add( params, 'bounces', 1, 16, 1 ).onChange( v => {
-        rtMaterial.defines.BOUNCES = parseInt( v );
-        rtMaterial.needsUpdate = true;
-        resetSamples();
-    });
+    renderer_folder.add( params, 'smooth_normals' ).onChange(                                         v => { rtQuad.material.needsUpdate = true; resetSamples(); });
+    renderer_folder.add( params, 'bounces', 1, 16, 1 ).onChange(                                      v => { rtMaterial.defines.BOUNCES = parseInt( v ); rtMaterial.needsUpdate = true; resetSamples(); });
     renderer_folder.add( params, 'wireframe' ).onChange(                                              v => { rtQuad.material.needsUpdate = true; resetSamples(); });
     renderer_folder.addColor(params, 'neutral_color').onChange(                                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
     renderer_folder.close();
@@ -567,6 +559,7 @@ function render()
 
         uniforms.wireframe.value                              = params.wireframe;
         uniforms.neutral_color.value.copy(get_vector3(          params.neutral_color));
+        uniforms.smooth_normals.value                         = params.smooth_normals;
 
         // sync material params
         uniforms.base_weight.value                            = params.base_weight;
