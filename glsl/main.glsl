@@ -157,7 +157,7 @@ float sinPhi(in vec3 w) { float S = sinTheta(w); return (S == 0.0) ? 1.0 : clamp
 // RNG
 /////////////////////////////////////////////////////////////////////////
 
-int xorshift(in int value) 
+int xorshift(in int value)
 {
     // https://en.wikipedia.org/wiki/Xorshift
     value ^= value << 13;
@@ -186,9 +186,8 @@ struct Basis
     vec3 baryCoord;
 };
 
-Basis makeBasis(in vec3 nW, in vec3 baryCoord)
+void setFrame(in vec3 nW, inout Basis basis)
 {
-    Basis basis;
     basis.nW = safe_normalize(nW);
     if (abs(nW.z) < abs(nW.x))
     {
@@ -204,6 +203,19 @@ Basis makeBasis(in vec3 nW, in vec3 baryCoord)
     }
     basis.tW = safe_normalize(basis.tW);
     basis.bW = safe_normalize(cross(nW, basis.tW));
+}
+
+Basis makeBasis(in vec3 nW)
+{
+    Basis basis;
+    setFrame(nW, basis);
+    return basis;
+}
+
+Basis makeBasis(in vec3 nW, in vec3 baryCoord)
+{
+    Basis basis;
+    setFrame(nW, basis);
     basis.baryCoord = baryCoord;
     return basis;
 }
@@ -311,7 +323,7 @@ float sample_triangle_filter(float xi)
 
 
 /////////////////////////////////////////////////////////////////////////
-// material calculations 
+// material calculations
 /////////////////////////////////////////////////////////////////////////
 
 bool cutout(in int material, inout int rndSeed)
@@ -470,4 +482,19 @@ struct Volume
     float abbe_number;  // dimensionless Abbe number for the embedding dielectric
 };
 
-
+// Sample Henyey-Greenstein phase function
+vec3 samplePhaseFunction(in vec3 dW, float anisotropy, inout int rndSeed)
+{
+    float U = rand(rndSeed);
+    float V = rand(rndSeed);
+    float g = anisotropy;
+    float costheta;
+    if (abs(g) < 1.0e-3)
+        costheta = 1.0 - 2.0*U;
+    else
+        costheta = 1.0/(2.0*g) * (1.0 + g*g - ((1.0-g*g)*(1.0-g+2.0*g*U)));
+    float sintheta = sqrt(max(0.0, 1.0-costheta*costheta));
+    float phi = 2.0*PI*V;
+    Basis basis = makeBasis(dW);
+    return costheta*dW + sintheta*(cos(phi)*basis.tW + sin(phi)*basis.bW);
+}

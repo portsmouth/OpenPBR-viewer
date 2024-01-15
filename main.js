@@ -37,18 +37,18 @@ class MeshLoader
         this.result = null;
     }
 
-	async load(path) 
+	async load(path)
     {
         if (this.result) Promise.resolve(this.result);
 
         let gltf = await this.loader.loadAsync(path);
         let S = Array.isArray( gltf.scene ) ? gltf.scene : [ gltf.scene ];
         const meshes = [];
-        for ( let i = 0, l = S.length; i < l; i ++ ) 
+        for ( let i = 0, l = S.length; i < l; i ++ )
         {
-            S[i].traverseVisible( c => 
+            S[i].traverseVisible( c =>
                 {
-                    if (c.isMesh) 
+                    if (c.isMesh)
                     {
                         const generator = new StaticGeometryGenerator( c );
                         generator.attributes = [ 'position', 'color', 'normal', 'tangent', 'uv', 'uv2' ];
@@ -67,7 +67,7 @@ class MeshLoader
     }
 }
 
-const params = 
+const params =
 {
 
     //////////////////////////////////////////////////////
@@ -94,7 +94,7 @@ const params =
     base_color:                          [0.8, 0.8, 0.8],
     base_roughness:                      0.0,
     base_metalness:                      0.0,
-                 
+
     specular_weight:                     1.0,
     specular_color:                      [1.0, 1.0, 1.0],
     specular_roughness:                  0.3,
@@ -102,7 +102,7 @@ const params =
     specular_rotation:                   0.0,
     specular_ior:                        1.5,
     specular_ior_level:                  0.5,
-               
+
     transmission_weight:                 0.0,
     transmission_color:                  [1.0, 1.0, 1.0],
     transmission_depth:                  0.0,
@@ -110,7 +110,7 @@ const params =
     transmission_scatter_anisotropy:     0.0,
     transmission_dispersion_abbe_number: 20.0,
     transmission_dispersion_scale:       0.0,
- 
+
     subsurface_weight:                   0.0,
     subsurface_color:                    [0.8, 0.8, 0.8],
     subsurface_radius:                   1.0,
@@ -124,7 +124,7 @@ const params =
     coat_rotation:                       0.0,
     coat_ior:                            1.6,
     coat_ior_level:                      0.5,
-               
+
     fuzz_weight:                         0.0,
     fuzz_color:                          [1.0, 1.0, 1.0],
     fuzz_roughness:                      0.5,
@@ -150,7 +150,7 @@ let LOADED;
 init();
 render();
 
-function init() 
+function init()
 {
     console.log('init');
 
@@ -189,14 +189,14 @@ function init()
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     const rtMaterial = new ShaderMaterial( {
-        
-        defines: 
+
+        defines:
         {
             SURFACE_IS_SHADERCUBE: 0,
             BOUNCES: params.bounces,
         },
 
-        uniforms: 
+        uniforms:
         {
             bvh_surface:             { value: new MeshBVHUniformStruct() },
             normalAttribute_surface: { value: new FloatVertexAttributeTexture() },
@@ -241,7 +241,7 @@ function init()
             base_color:                          { value: new Vector3(0.8, 0.8, 0.8) },
             base_roughness:                      { value: params.base_roughness },
             base_metalness:                      { value: params.base_metalness },
-              
+
             specular_weight:                     { value: params.specular_weight, },
             specular_color:                      { value: new Vector3(1.0, 1.0, 1.0) },
             specular_roughness:                  { value: params.specular_roughness },
@@ -257,7 +257,7 @@ function init()
             transmission_scatter_anisotropy:     { value: 0.0 },
             transmission_dispersion_abbe_number: { value: 20.0 },
             transmission_dispersion_scale:       { value: 0.0 },
-         
+
             subsurface_weight:                   { value: 0.0 },
             subsurface_color:                    { value: new Vector3(0.8, 0.8, 0.8) },
             subsurface_radius:                   { value: 1.0 },
@@ -271,7 +271,7 @@ function init()
             coat_rotation:                       { value: 0.0 },
             coat_ior:                            { value: 1.6  },
             coat_ior_level:                      { value: 0.5  },
-              
+
             fuzz_weight:                         { value: 0.0 },
             fuzz_color:                          { value: new Vector3(1.0, 1.0, 1.0) },
             fuzz_roughness:                      { value: 0.5 },
@@ -282,7 +282,7 @@ function init()
 
         vertexShader: `
             varying vec2 vUv;
-            void main() 
+            void main()
             {
                 vec4 mvPosition = vec4( position, 1.0 );
                 mvPosition = modelViewMatrix * mvPosition;
@@ -295,13 +295,13 @@ function init()
                          precision highp usampler2D;
                          ${ shaderStructs }
                          ${ shaderIntersectFunction }
-                        ` 
-                        + glsl_main   
-                        + glsl_coat_brdf      
+                        `
+                        + glsl_main
+                        + glsl_coat_brdf
                         + glsl_specular_brdf
                         + glsl_specular_btdf
-                        + glsl_metal_brdf 
-                        + glsl_diffuse_brdf   
+                        + glsl_metal_brdf
+                        + glsl_diffuse_brdf
                         + glsl_openpbr_surface
                         + glsl_pathtracer
 
@@ -406,8 +406,8 @@ function setup(rtMaterial)
 
     //////////////////////////////////////////////////////////
     // Setup GUI
-    //////////////////////////////////////////////////////////    
-        
+    //////////////////////////////////////////////////////////
+
     gui = new GUI();
 
     const material_folder = gui.addFolder('Material');
@@ -417,7 +417,7 @@ function setup(rtMaterial)
     base_folder.addColor(params,     'base_color').onChange(                                          v => { rtMaterial.needsUpdate = true; resetSamples(); });
     base_folder.add(params,          'base_roughness', 0.0, 1.0).onChange(                            v => { rtMaterial.needsUpdate = true; resetSamples(); });
     base_folder.add(params,          'base_metalness', 0.0, 1.0).onChange(                            v => { rtMaterial.needsUpdate = true; resetSamples(); });
-                      
+
     const specular_folder = material_folder.addFolder('Specular');
     specular_folder.add(params,      'specular_weight', 0.0, 1.0).onChange(                           v => { rtMaterial.needsUpdate = true; resetSamples(); });
     specular_folder.addColor(params, 'specular_color').onChange(                                      v => { rtMaterial.needsUpdate = true; resetSamples(); });
@@ -426,7 +426,7 @@ function setup(rtMaterial)
     specular_folder.add(params,      'specular_ior_level', 0.0, 1.0).onChange(                        v => { rtMaterial.needsUpdate = true; resetSamples(); });
     specular_folder.add(params,      'specular_anisotropy', 0.0, 1.0).onChange(                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
     specular_folder.add(params,      'specular_rotation', 0.0, 1.0).onChange(                         v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    
+
     const transmission_folder = material_folder.addFolder('Transmission');
     transmission_folder.add(params,      'transmission_weight', 0.0, 1.0).onChange(                   v => { rtMaterial.needsUpdate = true; resetSamples(); });
     transmission_folder.addColor(params, 'transmission_color').onChange(                              v => { rtMaterial.needsUpdate = true; resetSamples(); });
@@ -440,7 +440,7 @@ function setup(rtMaterial)
     const subsurface_folder = material_folder.addFolder('Subsurface');
     subsurface_folder.add(params,      'subsurface_weight', 0.0, 1.0).onChange(                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
     subsurface_folder.addColor(params, 'subsurface_color').onChange(                                  v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    subsurface_folder.add(params,      'subsurface_radius', 0.0, 1.0).onChange(                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    subsurface_folder.add(params,      'subsurface_radius', 0.0, 10.0).onChange(                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
     subsurface_folder.addColor(params, 'subsurface_radius_scale').onChange(                           v => { rtMaterial.needsUpdate = true; resetSamples(); });
     subsurface_folder.add(params,      'subsurface_anisotropy', -1.0, 1.0).onChange(                  v => { rtMaterial.needsUpdate = true; resetSamples(); });
     subsurface_folder.close();
@@ -458,7 +458,7 @@ function setup(rtMaterial)
     fuzz_folder.add(params,          'fuzz_weight', 0.0, 1.0).onChange(                               v => { rtMaterial.needsUpdate = true; resetSamples(); });
     fuzz_folder.addColor(params,     'fuzz_color').onChange(                                          v => { rtMaterial.needsUpdate = true; resetSamples(); });
     fuzz_folder.add(params,          'fuzz_roughness', 0.0, 1.0).onChange(                            v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    fuzz_folder.close();                             
+    fuzz_folder.close();
 
     const geometry_folder = material_folder.addFolder('Geometry');
     geometry_folder.add(params,      'geometry_opacity', 0.0, 1.0).onChange(                          v => { rtMaterial.needsUpdate = true; resetSamples(); });
@@ -477,23 +477,23 @@ function setup(rtMaterial)
     renderer_folder.addColor(params, 'neutral_color').onChange(                                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
     renderer_folder.close();
 
-    gui.open(); 
+    gui.open();
 
     //////////////////////////////////////////////////////////
     // Setup window
-    //////////////////////////////////////////////////////////   
+    //////////////////////////////////////////////////////////
 
     window.addEventListener( 'resize', resize, false );
     resize();
 }
 
 
-function resetSamples() 
+function resetSamples()
 {
     samples = 0;
 }
 
-function resize() 
+function resize()
 {
 	camera.aspect = window.innerWidth / window.innerHeight;
 	camera.updateProjectionMatrix();
@@ -512,7 +512,7 @@ function get_vector3(array3)
     return new Vector3(array3[0], array3[1], array3[2]);
 }
 
-function render() 
+function render()
 {
     if (!LOADED)
     {
@@ -566,7 +566,7 @@ function render()
         uniforms.base_color.value.copy(get_vector3(             params.base_color));
         uniforms.base_roughness.value                         = params.base_roughness;
         uniforms.base_metalness.value                         = params.base_metalness;
-    
+
         uniforms.specular_weight.value                        = params.specular_weight;
         uniforms.specular_color.value.copy(get_vector3(         params.specular_color));
         uniforms.specular_roughness.value                     = params.specular_roughness;
@@ -574,7 +574,7 @@ function render()
         uniforms.specular_rotation.value                      = params.specular_rotation;
         uniforms.specular_ior.value                           = params.specular_ior;
         uniforms.specular_ior_level.value                     = params.specular_ior_level;
-    
+
         uniforms.transmission_weight.value                    = params.transmission_weight;
         uniforms.transmission_color.value.copy(get_vector3(     params.transmission_color));
         uniforms.transmission_depth.value                     = params.transmission_depth;
@@ -582,7 +582,7 @@ function render()
         uniforms.transmission_scatter_anisotropy.value        = params.transmission_scatter_anisotropy;
         uniforms.transmission_dispersion_abbe_number.value    = params.transmission_dispersion_abbe_number;
         uniforms.transmission_dispersion_scale.value          = params.transmission_dispersion_scale;
- 
+
         uniforms.subsurface_weight.value                      = params.subsurface_weight;
         uniforms.subsurface_color.value.copy(get_vector3(       params.subsurface_color));
         uniforms.subsurface_radius.value                      = params.subsurface_radius;
@@ -630,6 +630,6 @@ function render()
 		camera.clearViewOffset();
         renderer.render( scene, camera );
     }
-        
+
     outputContainer.innerText = `samples: ${ samples }`;
 }
