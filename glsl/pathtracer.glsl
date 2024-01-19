@@ -3,6 +3,64 @@
 // Raytracing routines
 /////////////////////////////////////////////////////////////////////////
 
+bool bvhIntersectFirstHitWithinDistance(
+	BVH bvh, vec3 rayOrigin, vec3 rayDirection, in float maxDistance,
+	// output variables
+	inout uvec4 faceIndices, inout vec3 faceNormal, inout vec3 barycoord,
+	inout float side, inout float dist)
+{
+	// stack needs to be twice as long as the deepest tree we expect because
+	// we push both the left and right child onto the stack every traversal
+	int ptr = 0;
+	uint stack[ 60 ];
+	stack[ 0 ] = 0u;
+	float triangleDistance = 1e20;
+	bool found = false;
+	while (ptr > - 1 && ptr < 60)
+    {
+		uint currNodeIndex = stack[ ptr ];
+		ptr --;
+		// check if we intersect the current bounds
+		float boundsHitDistance = intersectsBVHNodeBounds( rayOrigin, rayDirection, bvh, currNodeIndex );
+		if (boundsHitDistance == INFINITY ||
+            boundsHitDistance > triangleDistance ||
+            boundsHitDistance > maxDistance)
+		        continue;
+		uvec2 boundsInfo = uTexelFetch1D( bvh.bvhContents, currNodeIndex ).xy;
+		bool isLeaf = bool( boundsInfo.x & 0xffff0000u );
+		if (isLeaf)
+        {
+			uint count = boundsInfo.x & 0x0000ffffu;
+			uint offset = boundsInfo.y;
+            float minDistance = min(maxDistance, triangleDistance);
+            bool found_intersection = intersectTriangles(bvh, rayOrigin, rayDirection, offset, count, minDistance,
+				                                         faceIndices, faceNormal, barycoord, side, dist);
+            if (found_intersection)
+            {
+                triangleDistance = minDistance;
+                found = true;
+            }
+		}
+        else
+        {
+			uint leftIndex = currNodeIndex + 1u;
+			uint splitAxis = boundsInfo.x & 0x0000ffffu;
+			uint rightIndex = boundsInfo.y;
+			bool leftToRight = rayDirection[ splitAxis ] >= 0.0;
+			uint c1 = leftToRight ? leftIndex : rightIndex;
+			uint c2 = leftToRight ? rightIndex : leftIndex;
+			// set c2 in the stack so we traverse it later. We need to keep track of a pointer in
+			// the stack while we traverse. The second pointer added is the one that will be
+			// traversed first
+			ptr ++;
+			stack[ ptr ] = c2;
+			ptr ++;
+			stack[ ptr ] = c1;
+		}
+	}
+	return found;
+}
+
 vec3 normalToTangent(in vec3 N)
 {
     vec3 T;
@@ -14,38 +72,7 @@ vec3 normalToTangent(in vec3 N)
     return T;
 }
 
-#if SURFACE_IS_SHADERCUBE
-vec2 boxIntersection( in vec3 ro, in vec3 rd, vec3 boxSize, out vec3 outNormal )
-{
-    vec3 m = 1.0/rd; // can precompute if traversing a set of aligned boxes
-    vec3 n = m*ro;   // can precompute if traversing a set of aligned boxes
-    vec3 k = abs(m)*boxSize;
-    vec3 t1 = -n - k;
-    vec3 t2 = -n + k;
-    float tN = max( max( t1.x, t1.y ), t1.z );
-    float tF = min( min( t2.x, t2.y ), t2.z );
-    if( tN>tF || tF<0.0) return vec2(-1.0); // no intersection
-    outNormal = (tN>0.0) ? step(vec3(tN),t1) : // ro ouside the box
-                           step(t2,vec3(tF));  // ro inside the box
-    outNormal *= -sign(rd);
-    return vec2( tN, tF );
-}
-bool intersect_shadercube(in vec3 rayOrigin, in vec3 rayDir, inout vec3 normal, inout float dist)
-{
-    vec2 X = boxIntersection(rayOrigin-vec3(0.0, 4.0, 0.0), rayDir, vec3(2.5, 2.5, 2.5), normal);
-    if (X.x < 0.0 && X.y < 0.0)
-        return false;
-    if (X.x < 0.0)
-        dist = X.y;
-    else if (X.y < 0.0)
-        dist = X.x;
-    else
-        dist = min(X.x, X.y);
-    return true;
-}
-#endif
-
-bool trace(in vec3 rayOrigin, in vec3 rayDir,
+bool trace(in vec3 rayOrigin, in vec3 rayDir, in float maxDistance,
             out vec3 P, out vec3 Ns, out vec3 Ng, out vec3 Ts, out vec3 baryCoord, out int material)
 {
     // hit results
@@ -54,21 +81,16 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir,
     vec3    barycoord_surface = vec3( 0.0 );
     float        side_surface = 1.0;
     float        dist_surface = HUGE_DIST;
-
-#if SURFACE_IS_SHADERCUBE
-    bool hit_surface = intersect_shadercube(rayOrigin, rayDir, faceNormal_surface, dist_surface);
-#else
-    bool hit_surface = bvhIntersectFirstHit( bvh_surface, rayOrigin, rayDir,
-                                             faceIndices_surface, faceNormal_surface, barycoord_surface, side_surface, dist_surface );
-#endif
+    bool hit_surface = bvhIntersectFirstHitWithinDistance( bvh_surface, rayOrigin, rayDir, maxDistance,
+                                                           faceIndices_surface, faceNormal_surface, barycoord_surface, side_surface, dist_surface );
 
     uvec4 faceIndices_props = uvec4( 0u );
     vec3   faceNormal_props = vec3( 0.0, 0.0, 1.0 );
     vec3    barycoord_props = vec3( 0.0 );
     float        side_props = 1.0;
     float        dist_props = HUGE_DIST;
-    bool hit_props = bvhIntersectFirstHit( bvh_props, rayOrigin, rayDir,
-                                           faceIndices_props, faceNormal_props, barycoord_props, side_props, dist_props );
+    bool hit_props = bvhIntersectFirstHitWithinDistance( bvh_props, rayOrigin, rayDir, min(dist_surface, maxDistance),
+                                                         faceIndices_props, faceNormal_props, barycoord_props, side_props, dist_props );
 
     bool hit = hit_surface || hit_props;
     if (!hit)
@@ -80,10 +102,6 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir,
         material = MATERIAL_OPENPBR;
         baryCoord = barycoord_surface;
         Ng = safe_normalize(faceNormal_surface);
-#if SURFACE_IS_SHADERCUBE
-        Ns = Ng;
-        Ts = normalToTangent(Ns);
-#else
         if (has_normals_surface)
         {
             Ns = textureSampleBarycoord(normalAttribute_surface, barycoord_surface, faceIndices_surface.xyz).xyz;
@@ -93,10 +111,9 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir,
         }
         else
             Ns = Ng;
-        //if (has_tangents_surface) Ts = textureSampleBarycoord(tangentAttribute_surface, barycoord_surface, faceIndices_surface.xyz).xyz;
-        //else
+        if (has_tangents_surface) Ts = textureSampleBarycoord(tangentAttribute_surface, barycoord_surface, faceIndices_surface.xyz).xyz;
+        else
             Ts = normalToTangent(Ns);
-#endif
     }
 
     else if (hit_props)
@@ -105,10 +122,6 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir,
         material = MATERIAL_PROPS;
         baryCoord = barycoord_props;
         Ng = safe_normalize(faceNormal_props);
-#if SURFACE_IS_SHADERCUBE
-        Ns = Ng;
-        Ts = normalToTangent(Ns);
-#else
         if (has_normals_props)
         {
             const bool flip_normals = false;
@@ -118,19 +131,19 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir,
         }
         else
             Ns = Ng;
-        //if (has_tangents_scene) Ts = textureSampleBarycoord(tangentAttribute_props, barycoord_props, faceIndices_props.xyz).xyz;
-        //else
+        if (has_tangents_props) Ts = textureSampleBarycoord(tangentAttribute_props, barycoord_props, faceIndices_props.xyz).xyz;
+        else
             Ts = normalToTangent(Ns);
-#endif
     }
     return true;
 }
 
-float TraceShadow(in vec3 rayOrigin, in vec3 rayDir)
+
+float TraceShadow(in vec3 rayOrigin, in vec3 rayDir, in float maxDistance)
 {
     int material;
     vec3 pW, nsW, ngW, TsW, baryCoord;
-    bool hit = trace(rayOrigin, rayDir,
+    bool hit = trace(rayOrigin, rayDir, maxDistance,
                      pW, nsW, ngW, TsW, baryCoord, material);
     return hit ? 0.0 : 1.0;
 }
@@ -210,7 +223,7 @@ vec3 directSurfaceLighting(in vec3 pW, in Basis basis, in vec3 winputW, in int m
     vec3 Li = sampleSkyAtSurface(basis, woutputL, woutputW, skyPdf, rndSeed);
     if (maxComponent(Li) > RADIANCE_EPSILON)
     {
-        Li *= TraceShadow(pW, woutputW);
+        Li *= TraceShadow(pW, woutputW, HUGE_DIST);
         if (maxComponent(Li) > RADIANCE_EPSILON)
         {
             // Apply MIS weight with the BSDF pdf for the sampled direction
@@ -228,13 +241,13 @@ vec3 directSurfaceLighting(in vec3 pW, in Basis basis, in vec3 winputW, in int m
 // pathtracer
 /////////////////////////////////////////////////////////////////////////
 
-#define MAX_VOLUME_STEPS 128
-#define MIN_VOLUME_STEPS_BEFORE_RR 4
+#define MAX_VOLUME_STEPS 100
+#define MIN_VOLUME_STEPS_BEFORE_RR 2
 
 int sample_channel(in vec3 albedo, in vec3 throughput, inout int rndSeed, inout vec3 channel_probs)
 {
-    // Sample color channel in proportion to throughput and albedo
-    vec3 w = abs(throughput * albedo);
+    // Sample color channel in proportion to throughput
+    vec3 w = abs(throughput);
     float sum = w.r + w.g + w.b;
     channel_probs = w / max(DENOM_TOLERANCE, sum);
     float cdf = 0.0;
@@ -270,30 +283,24 @@ bool trace_volumetric(in vec3 pW, in vec3 dW, inout int rndSeed,
         vec3 channel_probs;
         int channel = sample_channel(volume.albedo, volume_throughput, rndSeed, channel_probs);
         float walk_step = -log(rand(rndSeed)) * mfp[channel];
-        bool surface_hit = trace(pWalk, dWalk,
+        bool surface_hit = trace(pWalk, dWalk, walk_step,
                                  pW_hit, NsW_hit, NgW_hit, TsW_hit, baryCoord_hit, material_hit);
-        if (!surface_hit)
+        if (surface_hit)
         {
-            volume_throughput = vec3(0.0, 1.0, 0.0);
-            return false;
-        }
-        float dist_to_surface = length(pW_hit - pWalk);
-        if (walk_step > dist_to_surface)
-        {
-            // ray hits surface, walk terminates.
+            // ray hits surface within walk_step, walk terminates.
             // update walk throughput on exit (via MIS)
+            float dist_to_surface = length(pW_hit - pWalk);
             vec3 transmittance = exp(-dist_to_surface * volume.extinction);
             volume_throughput *= transmittance / max(DENOM_TOLERANCE, dot(channel_probs, transmittance));
             dW_hit = dWalk;
             return true;
         }
-
-        // Scatter within the surface, and continue walking.
+        // Scatter within the medium, and continue walking.
         // First, make a Russian-roulette termination decision (after a minimum number of steps has been taken)
         float termination_prob = 0.0;
         if (n > MIN_VOLUME_STEPS_BEFORE_RR)
         {
-            float continuation_prob = clamp(10.0*maxComponent(volume_throughput), 0.0, 1.0);
+            float continuation_prob = clamp(maxComponent(volume_throughput), 0.0, 1.0);
             float termination_prob = 1.0 - continuation_prob;
             if (rand(rndSeed) < termination_prob)
                 break;
@@ -373,7 +380,7 @@ void main()
         if (!inside_scattering_volume)
         {
             // Raycast along current propagation direction dW, from current vertex pW
-            surface_hit = trace(pW, dW,
+            surface_hit = trace(pW, dW, HUGE_DIST,
                                 pW_next, NsW_next, NgW_next, TsW_next, baryCoord_next, material_next);
 
             // Apply Beer-Lambert law for absorption

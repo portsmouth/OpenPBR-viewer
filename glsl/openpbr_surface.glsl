@@ -234,18 +234,20 @@ vec3 openpbr_bsdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int 
             // Set up the volumetric medium according to the "Subsurface" section of the OpenPBR spec
             else if (lobe_id==ID_SSSC_BTDF)
             {
-                vec3 A = subsurface_color;                                         // multi-scatter albedo
-                vec3 r = subsurface_radius * subsurface_radius_scale;              // diffusion radius
+                float g = clamp(subsurface_anisotropy, -0.95, 0.95);           // scattering anisotropy
+                vec3 A = subsurface_color;                                     // multi-scatter albedo
+                vec3 r = subsurface_radius * subsurface_radius_scale;          // diffusion radius
                 vec3 A2 = A*A;
                 vec3 A3 = A*A2;
                 vec3 A4 = A2*A2;
-                vec3 S = 4.012 - 15.21*A + 32.34*A2 - 34.68*A3 + 13.91*A4;         // Hyperion scale factor
-                vec3 mu_t = 1.0 / max(vec3(DENOM_TOLERANCE), S * r);
-                vec3 alpha = 1.0 - exp(-11.43*A + 15.38*A2 - 13.91*A3);            // single-scattering albedo
-                float g = subsurface_anisotropy;
-                vec3 denom = vec3(1.0) - g*(vec3(1.0) - alpha);
-                internal_medium.albedo     = alpha / denom;                        // remapped single-scattering albedo
-                internal_medium.extinction = mu_t * denom / (vec3(1.0) - vec3(g)); // remapped extinction
+                vec3 S = 4.012 - 15.21*A + 32.34*A2 - 34.68*A3 + 13.91*A4;     // Hyperion fit for scale factor S = L / diffusion_lengths
+                vec3 s2 = exp(-11.43*A + 15.38*A2 - 13.91*A3);                 // Hyperion fit for one minus single scatter albedo
+                vec3 L = S * r;                                                // MFPs according to Hyperion paper
+                vec3 alpha = (1.0 - s2);                                       // Hyperion fit for single scatter albedo
+                vec3 mu_t = 1.0 / max(vec3(3.0*RAY_OFFSET), L);                // OpenPBR extinction remapping
+                //vec3 mu_t = 1.0 / max(vec3(3.0*RAY_OFFSET), r);              // (v2)
+                internal_medium.albedo     = alpha / (1.0 - g*s2);             // remapped single-scattering albedo
+                internal_medium.extinction = mu_t * (1.0 - g*s2) / (1.0 - g);  // remapped extinction
                 internal_medium.anisotropy = g;
             }
 
