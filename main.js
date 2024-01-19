@@ -67,6 +67,11 @@ class MeshLoader
     }
 }
 
+function array_to_vector3(array)
+{
+    return new Vector3(array[0], array[1], array[2]);
+}
+
 const params =
 {
 
@@ -113,7 +118,7 @@ const params =
 
     subsurface_weight:                   0.0,
     subsurface_color:                    [0.8, 0.8, 0.8],
-    subsurface_radius:                   1.0,
+    subsurface_radius:                   0.01,
     subsurface_radius_scale:             [1.0, 0.5, 0.25],
     subsurface_anisotropy:               0.0,
 
@@ -192,7 +197,6 @@ function init()
 
         defines:
         {
-            SURFACE_IS_SHADERCUBE: 0,
             BOUNCES: params.bounces,
         },
 
@@ -238,46 +242,46 @@ function init()
             //////////////////////////////////////////////////////
 
             base_weight:                         { value: params.base_weight },
-            base_color:                          { value: new Vector3(0.8, 0.8, 0.8) },
+            base_color:                          { value: array_to_vector3(params.base_color) },
             base_roughness:                      { value: params.base_roughness },
             base_metalness:                      { value: params.base_metalness },
 
             specular_weight:                     { value: params.specular_weight, },
-            specular_color:                      { value: new Vector3(1.0, 1.0, 1.0) },
+            specular_color:                      { value: array_to_vector3(params.specular_color) },
             specular_roughness:                  { value: params.specular_roughness },
-            specular_anisotropy:                 { value: 0.0 },
-            specular_rotation:                   { value: 0.0 },
+            specular_anisotropy:                 { value: params.specular_anisotropy },
+            specular_rotation:                   { value: params.specular_rotation },
             specular_ior:                        { value: params.specular_ior  },
-            specular_ior_level:                  { value: 0.5  },
+            specular_ior_level:                  { value: params.specular_ior_level  },
 
             transmission_weight:                 { value: params.transmission_weight, },
-            transmission_color:                  { value: new Vector3(1.0, 1.0, 1.0) },
-            transmission_depth:                  { value: 0.0 },
-            transmission_scatter:                { value: new Vector3(0.0, 0.0, 0.0) },
-            transmission_scatter_anisotropy:     { value: 0.0 },
-            transmission_dispersion_abbe_number: { value: 20.0 },
-            transmission_dispersion_scale:       { value: 0.0 },
+            transmission_color:                  { value: array_to_vector3(params.transmission_color) },
+            transmission_depth:                  { value: params.transmission_depth },
+            transmission_scatter:                { value: array_to_vector3(params.transmission_scatter) },
+            transmission_scatter_anisotropy:     { value: params.transmission_scatter_anisotropy },
+            transmission_dispersion_abbe_number: { value: params.transmission_dispersion_abbe_number },
+            transmission_dispersion_scale:       { value: params.transmission_dispersion_scale },
 
-            subsurface_weight:                   { value: 0.0 },
-            subsurface_color:                    { value: new Vector3(0.8, 0.8, 0.8) },
-            subsurface_radius:                   { value: 1.0 },
-            subsurface_radius_scale:             { value: new Vector3(1.0, 0.5, 0.25) },
-            subsurface_anisotropy:               { value: 0.0 },
+            subsurface_weight:                   { value: params.subsurface_weight },
+            subsurface_color:                    { value: array_to_vector3(params.subsurface_color) },
+            subsurface_radius:                   { value: params.subsurface_radius },
+            subsurface_radius_scale:             { value: array_to_vector3(params.subsurface_radius_scale) },
+            subsurface_anisotropy:               { value: params.subsurface_anisotropy },
 
-            coat_weight:                         { value: 0.0 },
-            coat_color:                          { value: new Vector3(1.0, 1.0, 1.0) },
-            coat_roughness:                      { value: 0.0 },
-            coat_anisotropy:                     { value: 0.0 },
-            coat_rotation:                       { value: 0.0 },
-            coat_ior:                            { value: 1.6  },
-            coat_ior_level:                      { value: 0.5  },
+            coat_weight:                         { value: params.coat_weight },
+            coat_color:                          { value: array_to_vector3(params.coat_color) },
+            coat_roughness:                      { value: params.coat_roughness },
+            coat_anisotropy:                     { value: params.coat_anisotropy },
+            coat_rotation:                       { value: params.coat_rotation },
+            coat_ior:                            { value: params.coat_ior  },
+            coat_ior_level:                      { value: params.coat_ior_level  },
 
-            fuzz_weight:                         { value: 0.0 },
-            fuzz_color:                          { value: new Vector3(1.0, 1.0, 1.0) },
-            fuzz_roughness:                      { value: 0.5 },
+            fuzz_weight:                         { value: params.fuzz_weight },
+            fuzz_color:                          { value: array_to_vector3(params.fuzz_color) },
+            fuzz_roughness:                      { value: params.fuzz_roughness },
 
-            geometry_opacity:                    { value: 1.0 },
-            geometry_thin_walled:                { value: false }
+            geometry_opacity:                    { value: params.geometry_opacity },
+            geometry_thin_walled:                { value: params.geometry_thin_walled }
         },
 
         vertexShader: `
