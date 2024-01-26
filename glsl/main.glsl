@@ -29,7 +29,7 @@ uniform bool has_tangents_props;
 //////////////////////////////////////////////////////
 
 uniform float accumulation_weight;
-uniform float seed;
+uniform float samples;
 uniform bool wireframe;
 uniform vec3 neutral_color;
 uniform bool smooth_normals;
@@ -84,8 +84,13 @@ uniform bool geometry_thin_walled;
 // lighting uniforms
 //////////////////////////////////////////////////////
 
-uniform vec3 sky_color_up;
-uniform vec3 sky_color_down;
+uniform float skyPower;
+uniform vec3 skyColor;
+
+uniform float sunPower;
+uniform float sunAngularSize;
+uniform vec3 sunColor;
+uniform vec3 sunDir;
 
 //////////////////////////////////////////////////////
 // UVs
@@ -157,21 +162,29 @@ float sinPhi(in vec3 w) { float S = sinTheta(w); return (S == 0.0) ? 1.0 : clamp
 // RNG
 /////////////////////////////////////////////////////////////////////////
 
-int xorshift(in int value)
+// https://www.pcg-random.org/
+uint pcg(uint v)
 {
-    // https://en.wikipedia.org/wiki/Xorshift
-    value ^= value << 13;
-    value ^= value >> 17;
-    value ^= value << 5;
-    return value;
+	uint state = v * 747796405u + 2891336453u;
+	uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+	return (word >> 22u) ^ word;
 }
 
-float rand(inout int seed)
+void xorshift(inout uint seed)
 {
-    // https://www.shadertoy.com/view/tsf3Dn
-    seed = xorshift(seed);
-    return abs(fract(float(seed) / 3141.592653));
+    // https://en.wikipedia.org/wiki/Xorshift
+    seed ^= seed << 13u;
+    seed ^= seed >> 17u;
+    seed ^= seed << 5u;
 }
+
+float rand(inout uint seed)
+{
+    seed = pcg(seed);
+    const float uint_range = 1.0 / float(0xFFFFFFFFU);
+    return float(seed - 1U) * uint_range;
+}
+
 
 /////////////////////////////////////////////////////////////////////////
 // Transform to/from local space basis (i.e. tangent space frame)
@@ -191,18 +204,18 @@ void setFrame(in vec3 nW, inout Basis basis)
     basis.nW = safe_normalize(nW);
     if (abs(nW.z) < abs(nW.x))
     {
-        basis.tW.x =  basis.nW.z;
+        basis.tW.x =  nW.z;
         basis.tW.y =  0.0;
-        basis.tW.z = -basis.nW.x;
+        basis.tW.z = -nW.x;
     }
     else
     {
         basis.tW.x =  0.0;
-        basis.tW.y = basis.nW.z;
-        basis.tW.z = -basis.nW.y;
+        basis.tW.y =  nW.z;
+        basis.tW.z = -nW.y;
     }
     basis.tW = safe_normalize(basis.tW);
-    basis.bW = safe_normalize(cross(nW, basis.tW));
+    basis.bW = cross(basis.nW, basis.tW);
 }
 
 Basis makeBasis(in vec3 nW)
@@ -291,7 +304,7 @@ vec3 rotatedToLocal(in vec3 vRotated, in LocalFrameRotation rotation)
 // Sampling formulae
 /////////////////////////////////////////////////////////////////////////
 
-// pdf for cosine-weighted sampling of hemisphere
+// PDF for cosine-weighted sampling of hemisphere
 float pdfHemisphereCosineWeighted(in vec3 wiL)
 {
     if (wiL.z < 0.0) return 0.0;
@@ -299,7 +312,7 @@ float pdfHemisphereCosineWeighted(in vec3 wiL)
 }
 
 // Do cosine-weighted sampling of hemisphere
-vec3 sampleHemisphereCosineWeighted(inout int rndSeed, inout float pdf)
+vec3 sampleHemisphereCosineWeighted(inout uint rndSeed, inout float pdf)
 {
     float r = sqrt(rand(rndSeed));
     float theta = 2.0 * PI * rand(rndSeed);
@@ -326,7 +339,7 @@ float sample_triangle_filter(float xi)
 // material calculations
 /////////////////////////////////////////////////////////////////////////
 
-bool cutout(in int material, inout int rndSeed)
+bool cutout(in int material, inout uint rndSeed)
 {
     if (material != MATERIAL_OPENPBR)
         return false;
@@ -371,7 +384,7 @@ float ggx_ndf_eval(in vec3 m, in float alpha_x, in float alpha_y)
 // GGX NDF sampling routine, as described in
 //  "Sampling Visible GGX Normals with Spherical Caps", Dupuy et al., HPG 2023.
 // NB, this assumes wiL is in the +z hemisphere, and returns a sampled micronormal in that hemisphere.
-vec3 ggx_ndf_sample(in vec3 wiL, float alpha_x, float alpha_y, inout int rndSeed)
+vec3 ggx_ndf_sample(in vec3 wiL, float alpha_x, float alpha_y, inout uint rndSeed)
 {
     vec2 Xi = vec2(rand(rndSeed), rand(rndSeed));
     vec3 V = wiL;
@@ -415,60 +428,6 @@ float ggx_G2(in vec3 woL, in vec3 wiL, float alpha_x, float alpha_y)
 }
 
 
-
-///////////////////////////////////
-// for debug
-///////////////////////////////////
-
-// m = the microfacet normal (in the local space where z = the macrosurface normal)
-float microfacetEval(in vec3 m, in float roughness)
-{
-    float t2 = tanTheta2(m);
-    float c2 = cosTheta2(m);
-    float roughnessSqr = roughness*roughness;
-    float epsilon = 1.0e-9;
-    float exponent = t2 / max(roughnessSqr, epsilon);
-    float D = exp(-exponent) / max(PI*roughnessSqr*c2*c2, epsilon);
-    return D;
-}
-
-// m = the microfacet normal (in the local space where z = the macrosurface normal)
-vec3 microfacetSample(inout int rndSeed, in float roughness)
-{
-    float phiM = (2.0 * PI) * rand(rndSeed);
-    float cosPhiM = cos(phiM);
-    float sinPhiM = sin(phiM);
-    float epsilon = 1.0e-9;
-    float tanThetaMSqr = -roughness*roughness * log(max(epsilon, rand(rndSeed)));
-    float cosThetaM = 1.0 / sqrt(1.0 + tanThetaMSqr);
-    float sinThetaM = sqrt(max(0.0, 1.0 - cosThetaM*cosThetaM));
-    return safe_normalize(vec3(sinThetaM*cosPhiM, sinThetaM*sinPhiM, cosThetaM));
-}
-
-float microfacetPDF(in vec3 m, in float roughness)
-{
-    return microfacetEval(m, roughness) * abs(cosTheta(m));
-}
-
-// Shadow-masking function
-// Approximation from Walter et al (v = arbitrary direction, m = microfacet normal)
-float smithG1(in vec3 vLocal, in vec3 mLocal, float roughness)
-{
-    float tanThetaAbs = abs(tanTheta(vLocal));
-    float epsilon = 1.0e-6;
-    if (tanThetaAbs < epsilon) return 1.0; // perpendicular incidence -- no shadowing/masking
-    //if (dot(vLocal, mLocal) * vLocal.z <= 0.0) return 0.0; // Back side is not visible from the front side, and the reverse.
-    float a = 1.0 / (max(roughness, epsilon) * tanThetaAbs); // Rational approximation to the shadowing/masking function (Walter et al)  (<0.35% rel. error)
-    if (a >= 1.6) return 1.0;
-    float aSqr = a*a;
-    return (3.535*a + 2.181*aSqr) / (1.0 + 2.276*a + 2.577*aSqr);
-}
-
-float smithG2(in vec3 woL, in vec3 wiL, in vec3 mLocal, float roughness)
-{
-    return smithG1(woL, mLocal, roughness) * smithG1(wiL, mLocal, roughness);
-}
-
 /////////////////////////////////////////////////////////////////////////
 // Volumetrics
 /////////////////////////////////////////////////////////////////////////
@@ -483,7 +442,7 @@ struct Volume
 };
 
 // Sample Henyey-Greenstein phase function
-vec3 samplePhaseFunction(in vec3 dW, float anisotropy, inout int rndSeed)
+vec3 samplePhaseFunction(in vec3 dW, float anisotropy, inout uint rndSeed)
 {
     float U = rand(rndSeed);
     float V = rand(rndSeed);

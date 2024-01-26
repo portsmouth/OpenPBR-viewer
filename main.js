@@ -80,7 +80,7 @@ const params =
     //////////////////////////////////////////////////////
 
 	smooth_normals:                     true,
-    bounces:                            8,
+    bounces:                            2,
     wireframe:                          true,
     neutral_color:                      [0.5, 0.5, 0.5],
 
@@ -88,8 +88,13 @@ const params =
     // lighting params
     //////////////////////////////////////////////////////
 
-    sky_color_up:                        [1.0, 1.0, 1.0],
-    sky_color_down:                      [0.5, 0.5, 0.5],
+    skyPower:                            1.0,
+    skyColor:                            [0.8, 0.8, 1.0],
+    sunPower:                            -7.0,
+    sunAngularSize:                      10.0,
+    sunLatitude:                         40.0,
+    sunLongitude:                        0.0,
+    sunColor:                            [1.0, 1.0, 1.0],
 
     //////////////////////////////////////////////////////
     // OpenPBR surface params
@@ -155,6 +160,20 @@ let LOADED;
 init();
 render();
 
+function updateSunDir()
+{
+    let latTheta = (90.0-params.sunLatitude) * Math.PI/180.0;
+    let lonPhi = params.sunLongitude * Math.PI/180.0;
+    let costheta = Math.cos(latTheta);
+    let sintheta = Math.sin(latTheta);
+    let cosphi = Math.cos(lonPhi);
+    let sinphi = Math.sin(lonPhi);
+    let x = sintheta * cosphi;
+    let z = sintheta * sinphi;
+    let y = costheta;
+    params.sunDir = [x, y, z];
+}
+
 function init()
 {
     console.log('init');
@@ -219,7 +238,7 @@ function init()
             invModelMatrix:        { value: new Matrix4() },
             resolution:            { value: new Vector2() },
 
-			seed:                  { value: 0 },
+			samples:               { value: 0 },
 			accumulation_weight:   { value: 1 },
 
             //////////////////////////////////////////////////////
@@ -234,8 +253,13 @@ function init()
             // lighting
             //////////////////////////////////////////////////////
 
-            sky_color_up:                        { value: params.sky_color_up, },
-            sky_color_down:                      { value: params.sky_color_down, },
+            skyPower:                            { value: params.skyPower, },
+            skyColor:                            { value: array_to_vector3(params.skyColor) },
+
+            sunPower:                            { value: Math.pow(10.0,params.sunPower), },
+            sunAngularSize:                      { value: params.sunAngularSize, },
+            sunColor:                            { value: array_to_vector3(params.sunColor) },
+            sunDir:                              { value: array_to_vector3([0,0,0]) },
 
             //////////////////////////////////////////////////////
             // material
@@ -297,6 +321,7 @@ function init()
 
         fragmentShader: `precision highp isampler2D;
                          precision highp usampler2D;
+                         precision highp int;
                          ${ shaderStructs }
                          ${ shaderIntersectFunction }
                         `
@@ -394,6 +419,7 @@ function setup(rtMaterial)
     pnew.addScaledVector(d, -2.0*scale);
     camera.position.copy(pnew);
     orbitControls.target.copy(center);
+    orbitControls.zoomSpeed = 1.5;
     orbitControls.update();
 
     //////////////////////////////////////////////////////////
@@ -470,8 +496,15 @@ function setup(rtMaterial)
     geometry_folder.close();
 
     const lighting_folder = gui.addFolder('Lighting');
-    lighting_folder.addColor(params, 'sky_color_up').onChange(                                        v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    lighting_folder.addColor(params, 'sky_color_down').onChange(                                      v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    lighting_folder.add(params, 'skyPower', 0.0, 2.0).onChange(                                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    lighting_folder.addColor(params, 'skyColor').onChange(                                            v => { rtMaterial.needsUpdate = true; resetSamples(); });
+
+    lighting_folder.add(params, 'sunPower', -4.0, 4.0).onChange(                                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    lighting_folder.add(params, 'sunAngularSize', 0.0, 40.0).onChange(                                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    lighting_folder.add(params, 'sunLatitude', 0.0, 90.0).onChange(                                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    lighting_folder.add(params, 'sunLongitude', 0.0, 360.0).onChange(                                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    lighting_folder.addColor(params, 'sunColor').onChange(                                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
+
     lighting_folder.close();
 
     const renderer_folder = gui.addFolder('Renderer');
@@ -531,7 +564,7 @@ function render()
 
     renderer.domElement.style.imageRendering = 'auto';
 
-    const MAX_SAMPLES = 512;
+    const MAX_SAMPLES = 8192;
     if (samples >= MAX_SAMPLES)
         return;
 
@@ -557,9 +590,8 @@ function render()
         // sync renderer params
         let resolution = new Vector2(w, h);
         uniforms.resolution.value.copy(resolution);
-		const seed = samples*w*h % 31415926;
         uniforms.accumulation_weight.value                    = 1.0 / (samples + 1.0); // implements Monte-Carlo accumulation
-		uniforms.seed.value                                   = seed;
+		uniforms.samples.value                                = samples;
 
         uniforms.wireframe.value                              = params.wireframe;
         uniforms.neutral_color.value.copy(get_vector3(          params.neutral_color));
@@ -609,8 +641,14 @@ function render()
         uniforms.geometry_thin_walled.value                   = params.geometry_thin_walled;
 
         // sync lighting params
-        uniforms.sky_color_up.value                           = params.sky_color_up;
-        uniforms.sky_color_down.value                         = params.sky_color_down;
+        uniforms.skyPower.value                               = params.skyPower;
+        uniforms.skyColor.value.copy(get_vector3(               params.skyColor));
+
+        uniforms.sunPower.value                               = Math.pow(10.0,params.sunPower);
+        uniforms.sunAngularSize.value                         = params.sunAngularSize;
+        uniforms.sunColor.value.copy(get_vector3(               params.sunColor));
+        updateSunDir();
+        uniforms.sunDir.value.copy(get_vector3(                 params.sunDir));
 
         //////////////////////////////////////////////////////
         // render framebuffer
