@@ -85,7 +85,7 @@ vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
 }
 
 
-vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed,
+vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
                           out vec3 woutputL, out float pdf_woutputL)
 {
     // We assume that the local frame is setup so that the z direction points from the dielectric interior to the exterior.
@@ -165,7 +165,7 @@ vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int
 }
 
 
-vec3 specular_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed)
+vec3 specular_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed)
 {
     // Estimate of the BRDF albedo, used to compute the discrete probability of selecting this lobe
     float n_exterior = 1.0;

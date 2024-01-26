@@ -61,7 +61,7 @@ vec3 metal_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wo
 }
 
 
-vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed,
+vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
                        out vec3 woutputL, out float pdf_woutputL)
 {
     if (winputL.z < DENOM_TOLERANCE) return vec3(0.0);
@@ -103,7 +103,7 @@ vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int rn
 }
 
 
-vec3 metal_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed)
+vec3 metal_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed)
 {
     // Estimate of the BRDF albedo, used to compute the discrete probability of selecting this lobe
     if (winputL.z < DENOM_TOLERANCE) return vec3(0.0);

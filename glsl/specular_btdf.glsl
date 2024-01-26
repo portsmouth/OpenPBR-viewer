@@ -95,7 +95,7 @@ bool refraction_given_transmitted_beam(in vec3 n, in float eta_ti_photon, in vec
 }
 
 
-vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed,
+vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
                           out vec3 woutputL, out float pdf_woutputL)
 {
     // We assume that the local frame is setup so that the z direction points from the dielectric interior to the exterior.
@@ -129,13 +129,11 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int
     vec3 mR;
     if (winputR.z > 0.0)
         mR = ggx_ndf_sample(winputR, alpha_x, alpha_y, rndSeed);
-        //mR = microfacetSample(rndSeed, alpha_x);
     else
     {
         vec3 winputR_reflected = winputR;
         winputR_reflected.z *= -1.0;
         mR = ggx_ndf_sample(winputR_reflected, alpha_x, alpha_y, rndSeed);
-        //mR = microfacetSample(rndSeed, alpha_x);
         mR.z *= -1.0;
     }
 
@@ -153,7 +151,6 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    //float D = microfacetEval(mR, alpha_x);
     float DV = D * ggx_G1(winputR, alpha_x, alpha_y) * abs(dot(winputR, mR)) / max(DENOM_TOLERANCE, abs(winputR.z));
 
     // Compute Jacobian of the half-direction mapping
@@ -166,11 +163,9 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int
 
     // Thus compute PDF of woutputL sample
     pdf_woutputL = DV * dwh_dwo;
-    //pdf_woutputL = microfacetPDF(mR, alpha_x) * dwh_dwo;
 
     // Compute shadowing-masking term
     float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
-    //float G2 = smithG2(woutputR, winputR, mR, alpha_x);
 
     // Compute Fresnel factor for the dielectric transmission (from that of the corresponding time-reversed reflection)
     float eta_ti_refl = 1.0 / eta_ti_photon;
@@ -185,7 +180,7 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int
 }
 
 
-vec3 specular_btdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed)
+vec3 specular_btdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed)
 {
     // Estimate of the BTDF albedo, used to compute the discrete probability of selecting this lobe
     float n_exterior = 1.0;
