@@ -47,7 +47,7 @@ LobeProbs   lobe_probs;
 
 // Construct weights of individual BSDF lobes, according to OpenPBR surface model (in the non-reciprocal albedo-scaling approximation).
 // Note that this requires computing the albedos of some of the lobes.
-void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed,
+void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
                           inout LobeWeights weights, inout LobeAlbedos albedos)
 {
     // Surface //////////////////////
@@ -111,7 +111,7 @@ void openpbr_lobe_probabilities(in LobeWeights weights, in LobeAlbedos albedos,
         probs.m[lobe_id] /= W_total;
 }
 
-void openpbr_prepare(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed)
+void openpbr_prepare(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed)
 {
     // Compute the mixture weights and albedos for each lobe
     openpbr_lobe_weights(pW, basis, winputL, rndSeed, lobe_weights, lobe_albedos);
@@ -120,6 +120,13 @@ void openpbr_prepare(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndS
     openpbr_lobe_probabilities(lobe_weights, lobe_albedos, lobe_probs);
 }
 
+bool openpbr_is_opaque()
+{
+    if (transmission_weight > 0.0) return false;
+    if (subsurface_weight > 0.0) return false;
+    if (geometry_opacity < 1.0) return false;
+    return true;
+}
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // OpenPBR BSDF: evaluation
@@ -170,7 +177,7 @@ vec3 openpbr_bsdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-vec3 openpbr_bsdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout int rndSeed,
+vec3 openpbr_bsdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
                          out vec3 woutputL, out float pdf_woutputL, out Volume internal_medium)
 {
     // Sample a lobe according to these probabilities.
