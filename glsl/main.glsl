@@ -109,7 +109,7 @@ const float RECIPROCAL_PI2        = 0.15915494309189535;
 
 // tolerances
 const float HUGE_DIST             = 1.0e20;
-const float RAY_OFFSET            = 1.0e-4;
+const float RAY_OFFSET            = 1.0e-3;
 const float DENOM_TOLERANCE       = 1.0e-12;
 const float RADIANCE_EPSILON      = 1.0e-12;
 const float TRANSMITTANCE_EPSILON = 1.0e-4;

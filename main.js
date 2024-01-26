@@ -90,8 +90,8 @@ const params =
 
     skyPower:                            1.0,
     skyColor:                            [0.8, 0.8, 1.0],
-    sunPower:                            -7.0,
-    sunAngularSize:                      10.0,
+    sunPower:                            3.0,
+    sunAngularSize:                      2.0,
     sunLatitude:                         40.0,
     sunLongitude:                        0.0,
     sunColor:                            [1.0, 1.0, 1.0],

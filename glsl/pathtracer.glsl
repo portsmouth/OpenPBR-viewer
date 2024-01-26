@@ -179,18 +179,16 @@ vec3 neutral_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint
 vec3 evaluateBsdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL, in int material,
                   inout float pdf_woutputL)
 {
-    //if (material == MATERIAL_OPENPBR) return openpbr_bsdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
-    //else
-        return neutral_brdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
+    if (material == MATERIAL_OPENPBR) return openpbr_bsdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
+    else                              return neutral_brdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
 }
 
 
 vec3 sampleBsdf(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed, in int material,
                 out vec3 woutputL, out float pdf_woutputL, out Volume internal_medium)
 {
-    //if (material == MATERIAL_OPENPBR) return openpbr_bsdf_sample(pW, basis, winputL, rndSeed, woutputL, pdfOut, internal_medium);
-    //else
-        return neutral_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_woutputL);
+    if (material == MATERIAL_OPENPBR) return openpbr_bsdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_woutputL, internal_medium);
+    else                              return neutral_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_woutputL);
 }
 
 
@@ -270,11 +268,11 @@ float skyPdf(in vec3 woutputL, in vec3 woutputWs)
 // Estimate direct radiance at the given surface vertex
 vec3 LiDirect(in vec3 pW, in Basis basis,
               out vec3 shadowL, out vec3 shadowW,
+              out float lightPdf,
               inout uint rndSeed)
 {
     // Do 1-sample MIS between uniform sky and sun sampling
     vec3 Li;
-    float lightPdf;
     {
         float w_sun = sunTotalPower();
         float w_sky = skyTotalPower();
@@ -421,7 +419,7 @@ void main()
     // Perform uni-directional pathtrace starting from the (pinhole) camera lens to estimate the primary ray radiance, L
     vec3 L = vec3(0.0);
     vec3 throughput = vec3(1.0);
-    float misWeight = 1.0; // For MIS book-keeping
+    float misWeightBSDF = 1.0; // For MIS book-keeping
 
     // Initialize volumetric medium of camera ray
     // (NB, camera inside the interior is not handled properly here)
@@ -485,8 +483,7 @@ void main()
         if (!surface_hit)
         {
             // Camera ray missed all geometry; add contribution from distant lights
-            if (vertex == 0)
-                L += throughput * (sunRadiance(dW) + skyRadiance(dW));
+            L += throughput * misWeightBSDF * (sunRadiance(dW) + skyRadiance(dW));
 
             // Ray escapes to infinity, terminate path
             break;
@@ -541,8 +538,8 @@ void main()
         vec3 winputL = worldToLocal(winputW, basis);
 
         // Prepare OpenPBR if that material is used at the current vertex
-        //if (material == MATERIAL_OPENPBR)
-        //    openpbr_prepare(pW, basis, winputL, rndSeed);
+        if (material == MATERIAL_OPENPBR)
+            openpbr_prepare(pW, basis, winputL, rndSeed);
 
         // Sample BSDF for the continuation ray direction
         vec3 surface_throughput;
@@ -579,10 +576,13 @@ void main()
         if (!in_dielectric)
         {
             vec3 shadowL, shadowW; // sampled shadow ray direction
-            vec3 Li = LiDirect(pW, basis, shadowL, shadowW, rndSeed);
+            float lightPdf;
+            vec3 Li = LiDirect(pW, basis, shadowL, shadowW, lightPdf, rndSeed);
             float bsdfPdf;
             vec3 fshadow = evaluateBsdf(pW, basis, winputL, shadowL, material, bsdfPdf);
-            L += throughput * fshadow * abs(dot(shadowW, basis.nW)) * Li;
+            float misWeightLight = balanceHeuristic(lightPdf, bsdfPdf);
+            L += throughput * fshadow * abs(dot(shadowW, basis.nW)) * Li * misWeightLight;
+            misWeightBSDF = balanceHeuristic(bsdfPdf, lightPdf);
         }
 
         // Update path continuation throughput
