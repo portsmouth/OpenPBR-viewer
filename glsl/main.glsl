@@ -319,13 +319,13 @@ vec3 sampleHemisphereCosineWeighted(inout uint rndSeed, inout float pdf)
     float x = r * cos(theta);
     float y = r * sin(theta);
     float z = sqrt(max(0.0, 1.0 - x*x - y*y));
-    pdf = abs(z) / PI;
+    pdf = max(PDF_EPSILON, abs(z) / PI);
     return vec3(x, y, z);
 }
 
 float balanceHeuristic(const float a, const float b)
 {
-    return a / (a + b);
+    return a / max(DENOM_TOLERANCE, a + b);
 }
 
 float sample_triangle_filter(float xi)
