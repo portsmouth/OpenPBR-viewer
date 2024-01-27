@@ -542,14 +542,14 @@ void main()
             openpbr_prepare(pW, basis, winputL, rndSeed);
 
         // Sample BSDF for the continuation ray direction
+        float bsdfPdf_continuation;
         vec3 surface_throughput;
         {
             vec3 woutputL; // points *towards* the outgoing ray direction (opposite to photon)
-            float bsdfPdf;
             Volume internal_medium;
-            vec3 f = sampleBsdf(pW, basis, winputL, rndSeed, material, woutputL, bsdfPdf, internal_medium);
+            vec3 f = sampleBsdf(pW, basis, winputL, rndSeed, material, woutputL, bsdfPdf_continuation, internal_medium);
             vec3 woutputW = localToWorld(woutputL, basis);
-            surface_throughput = f / max(PDF_EPSILON, bsdfPdf) * abs(dot(woutputW, basis.nW));
+            surface_throughput = f / max(PDF_EPSILON, bsdfPdf_continuation) * abs(dot(woutputW, basis.nW));
             dW = woutputW; // Update continuation ray direction to the BSDF-sampled direction
         }
 
@@ -578,12 +578,14 @@ void main()
             vec3 shadowL, shadowW; // sampled shadow ray direction
             float lightPdf;
             vec3 Li = LiDirect(pW, basis, shadowL, shadowW, lightPdf, rndSeed);
-            float bsdfPdf;
-            vec3 fshadow = evaluateBsdf(pW, basis, winputL, shadowL, material, bsdfPdf);
-            float misWeightLight = balanceHeuristic(lightPdf, bsdfPdf);
+            float bsdfPdf_shadow;
+            vec3 fshadow = evaluateBsdf(pW, basis, winputL, shadowL, material, bsdfPdf_shadow);
+            float misWeightLight = balanceHeuristic(lightPdf, bsdfPdf_continuation);
             L += throughput * fshadow * abs(dot(shadowW, basis.nW)) * Li * misWeightLight;
-            misWeightBSDF = balanceHeuristic(bsdfPdf, lightPdf);
+            misWeightBSDF = balanceHeuristic(bsdfPdf_continuation, lightPdf);
         }
+        else
+            misWeightBSDF = 1.0;
 
         // Update path continuation throughput
         throughput *= surface_throughput;
