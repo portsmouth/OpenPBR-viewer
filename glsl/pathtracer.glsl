@@ -295,9 +295,9 @@ vec3 LiDirect(in vec3 pW, in Basis basis,
         lightPdf = P_sun*pdf_sun + P_sky*pdf_sky; // Light PDF according to 1-sample MIS
     }
     if (shadowL.z < 0.0) return vec3(0.0);
-    if (averageComponent(Li) < RADIANCE_EPSILON) return vec3(0.0);
+    if (maxComponent(Li) < RADIANCE_EPSILON) return vec3(0.0);
     float visibility = TraceShadow(pW, shadowW, HUGE_DIST);
-    return visibility * Li / max(PDF_EPSILON, lightPdf);
+    return visibility * Li;
 }
 
 
@@ -430,7 +430,7 @@ void main()
 
     bool in_dielectric = false;
 
-    for (int vertex=0; vertex < BOUNCES; vertex++)
+    for (int vertex=0; vertex <= BOUNCES; vertex++)
     {
         if (maxComponent(throughput) < THROUGHPUT_EPSILON)
             break;
@@ -445,22 +445,20 @@ void main()
         int material_next;
 
         // If not inside a scattering volume, ray proceeds in a straight line to the next surface hit
-        //bool inside_volume            = in_dielectric && maxComponent(current_medium.extinction) > FLT_EPSILON;
-        //bool inside_scattering_volume = inside_volume && maxComponent(current_medium.albedo) > FLT_EPSILON;
-        //if (!inside_scattering_volume)
+        bool inside_volume            = in_dielectric && maxComponent(current_medium.extinction) > FLT_EPSILON;
+        bool inside_scattering_volume = inside_volume && maxComponent(current_medium.albedo) > FLT_EPSILON;
+        if (!inside_scattering_volume)
         {
             // Raycast along current propagation direction dW, from current vertex pW
             surface_hit = trace(pW, dW, HUGE_DIST,
                                 pW_next, NsW_next, NgW_next, TsW_next, baryCoord_next, material_next);
 
             // Apply Beer-Lambert law for absorption
-            /*
             if (surface_hit && inside_volume)
             {
                 float ray_length = length(pW_next - pW);
                 throughput *= exp(-ray_length * current_medium.extinction);
             }
-            */
         }
 
         // Otherwise volumetric scattering may occur before the next surface hit
@@ -476,9 +474,8 @@ void main()
         }
         */
 
-
-        //if (maxComponent(throughput) < THROUGHPUT_EPSILON)
-        //    break;
+        if (maxComponent(throughput) < THROUGHPUT_EPSILON)
+            break;
 
         if (!surface_hit)
         {
@@ -489,6 +486,9 @@ void main()
             break;
         }
 
+        if (vertex == BOUNCES)
+            break;
+
         // Update to the next surface vertex.
         // First, compute the normal and thus the local vertex basis:
         pW             = pW_next;
@@ -498,7 +498,6 @@ void main()
         vec3 baryCoord = baryCoord_next;
         int material   = material_next;
 
-        /*
         if (material == MATERIAL_OPENPBR)
         {
             // Orient local shading normal so that it points from the surface interior to the exterior
@@ -514,10 +513,9 @@ void main()
             if (dot(NsW, dW) > 0.0)
                 NsW *= -1.0;
         }
-        */
 
         // Align geometric normal into same hemisphere as shading normal
-        //if (dot(NgW, NsW) < 0.0) NgW *= -1.0;
+        if (dot(NgW, NsW) < 0.0) NgW *= -1.0;
 
         // Construct local shading frame
         Basis basis;
@@ -527,7 +525,7 @@ void main()
             // If the surface is opaque, but the incident ray lies below the hemisphere of the normal,
             // which can occur due to shading normals, apply the "Flipping hack" to prevent artifacts
             // (see Schüßler, "Microfacet-based Normal Mapping for Robust Monte Carlo Path Tracing")
-            if (dot(NsW, dW) > 0.0)
+            if (openpbr_is_opaque() && dot(NsW, dW) > 0.0)
                 NsW = 2.0*NgW*dot(NgW, NsW) - NsW;
             basis = makeBasis(NsW, baryCoord);
         }
@@ -543,10 +541,10 @@ void main()
 
         // Sample BSDF for the continuation ray direction
         float bsdfPdf_continuation;
+        Volume internal_medium;
         vec3 surface_throughput;
         {
             vec3 woutputL; // points *towards* the outgoing ray direction (opposite to photon)
-            Volume internal_medium;
             vec3 f = sampleBsdf(pW, basis, winputL, rndSeed, material, woutputL, bsdfPdf_continuation, internal_medium);
             vec3 woutputW = localToWorld(woutputL, basis);
             surface_throughput = f / max(PDF_EPSILON, bsdfPdf_continuation) * abs(dot(woutputW, basis.nW));
@@ -560,8 +558,7 @@ void main()
         pW += NgW * sign(dot(dW, NgW)) * RAY_OFFSET; // perturb vertex into geometric half-space of scattered ray
 
         // Check if a transmission has occurred, and update the current_medium accordingly.
-        /*
-        bool transmitted = (material == MATERIAL_OPENPBR) && (dot(winputW, NgW) * dot(woutputW, NgW) < 0.0);
+        bool transmitted = (material == MATERIAL_OPENPBR) && (dot(winputW, NgW) * dot(dW, NgW) < 0.0);
         if (transmitted)
         {
             in_dielectric = !in_dielectric;
@@ -570,22 +567,23 @@ void main()
             else
                 current_medium = exterior_medium;
         }
-        */
 
         // Add direct lighting term at the current surface vertex
-        if (!in_dielectric)
+        misWeightBSDF = 1.0;
+        if (!in_dielectric && !transmitted)
         {
             vec3 shadowL, shadowW; // sampled shadow ray direction
             float lightPdf;
             vec3 Li = LiDirect(pW, basis, shadowL, shadowW, lightPdf, rndSeed);
-            float bsdfPdf_shadow;
-            vec3 fshadow = evaluateBsdf(pW, basis, winputL, shadowL, material, bsdfPdf_shadow);
-            float misWeightLight = balanceHeuristic(lightPdf, bsdfPdf_continuation);
-            L += throughput * fshadow * abs(dot(shadowW, basis.nW)) * Li * misWeightLight;
-            misWeightBSDF = balanceHeuristic(bsdfPdf_continuation, lightPdf);
+            if (maxComponent(Li) > RADIANCE_EPSILON)
+            {
+                float bsdfPdf_shadow = PDF_EPSILON;
+                vec3 fshadow = evaluateBsdf(pW, basis, winputL, shadowL, material, bsdfPdf_shadow);
+                float misWeightLight = powerHeuristic(lightPdf, bsdfPdf_shadow);
+                L += throughput * misWeightLight * fshadow * abs(dot(shadowW, basis.nW)) * Li / max(PDF_EPSILON, lightPdf);
+                misWeightBSDF = powerHeuristic(bsdfPdf_continuation, lightPdf);
+            }
         }
-        else
-            misWeightBSDF = 1.0;
 
         // Update path continuation throughput
         throughput *= surface_throughput;

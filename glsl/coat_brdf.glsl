@@ -21,10 +21,7 @@ vec3 coat_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
 {
     bool transmitted = woutputL.z * winputL.z < 0.0;
     if (transmitted)
-    {
-        pdf_woutputL = PDF_EPSILON;
         return vec3(0.0);
-    }
 
     // We assume that the local frame is setup so that the z direction points from the dielectric interior to the exterior.
     // Thus we can determine if the reflection is internal or external to the dielectric:
@@ -37,11 +34,7 @@ vec3 coat_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
     float n_interior = coat_ior;
     float eta_ti_refl = external_reflection ? n_interior/n_exterior : n_exterior/n_interior;
     if (abs(eta_ti_refl - 1.0) < IOR_EPSILON)
-    {
-        // degenerate case of index-matched interface, BRDF goes to zero
-        pdf_woutputL = 1.0;
-        return vec3(0.0);
-    }
+        return vec3(0.0); // degenerate case of index-matched interface, BRDF goes to zero
 
     // Compute the NDF roughnesses in the rotated frame
     float alpha_x, alpha_y;
@@ -85,11 +78,7 @@ vec3 coat_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rn
     float n_interior = coat_ior;
     float eta_ti_refl = external_reflection ? n_interior/n_exterior : n_exterior/n_interior;
     if (abs(eta_ti_refl - 1.0) < IOR_EPSILON)
-    {
-        // degenerate limit case of index-matched interface, BRDF goes to zero
-        pdf_woutputL = 1.0;
-        return vec3(0.0);
-    }
+        return vec3(0.0); // degenerate limit case of index-matched interface, BRDF goes to zero
 
     // Compute the NDF roughnesses in the rotated frame
     float alpha_x, alpha_y;
@@ -104,27 +93,12 @@ vec3 coat_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rn
     if (winputR.z > 0.0)
         mR = ggx_ndf_sample(winputR, alpha_x, alpha_y, rndSeed);
     else
-    {
-        pdf_woutputL = 1.0;
-        return vec3(0.0);
-        /*
-        // TODO: allowing coat internal reflection seems to generate excessive fireflies, why?
-        vec3 winputR_reflected = winputR;
-        winputR_reflected.z *= -1.0;
-        mR = ggx_ndf_sample(winputR_reflected, alpha_x, alpha_y, rndSeed);
-        mR.z *= -1.0;
-        */
-    }
+        return vec3(0.0); // coat internal reflection ignored (not strictly physical)
 
     // Compute woutputR (and thus woutputL) by reflecting winputR about mR
     vec3 woutputR = -winputR + 2.0*dot(winputR, mR)*mR;
-    if (winputR.z * woutputR.z < 0.0)
-    {
-        pdf_woutputL = 1.0;
-        return vec3(0.0);
-    }
-        //woutputR *= -1.0; // flip if reflected ray direction in wrong hemisphere (in absence of a multi-scatter approx. currently)
-
+    if (winputR.z * woutputR.z < FLT_EPSILON)
+        return vec3(0.0); // no reflection if ray direction in wrong hemisphere (in absence of a multi-scatter approx. currently)
 
     // Rotate woutputR back to local space
     woutputL = rotatedToLocal(woutputR, rotation);
@@ -162,7 +136,7 @@ vec3 coat_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rn
     }
 
     // Approximate albedo via Monte-Carlo sampling:
-    const int num_samples = 4;
+    const int num_samples = 1;
     vec3 albedo = vec3(0.0);
     for (int n=0; n<num_samples; ++n)
     {
