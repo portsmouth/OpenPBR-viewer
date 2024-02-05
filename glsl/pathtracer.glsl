@@ -305,9 +305,8 @@ vec3 LiDirect(in vec3 pW, in Basis basis,
 // pathtracer
 /////////////////////////////////////////////////////////////////////////
 
-/*
-#define MAX_VOLUME_STEPS 100
-#define MIN_VOLUME_STEPS_BEFORE_RR 2
+#define MAX_VOLUME_STEPS 8
+#define MIN_VOLUME_STEPS_BEFORE_RR 3
 
 int sample_channel(in vec3 albedo, in vec3 throughput, inout uint rndSeed, inout vec3 channel_probs)
 {
@@ -387,7 +386,7 @@ bool trace_volumetric(in vec3 pW, in vec3 dW, inout uint rndSeed,
     volume_throughput = vec3(0.0); // path terminated in the medium
     return false;
 }
-*/
+
 
 void main()
 {
@@ -462,7 +461,6 @@ void main()
         }
 
         // Otherwise volumetric scattering may occur before the next surface hit
-        /*
         else
         {
             vec3 volume_throughput;
@@ -472,7 +470,6 @@ void main()
             dW = dW_next;
             throughput *= volume_throughput;
         }
-        */
 
         if (maxComponent(throughput) < THROUGHPUT_EPSILON)
             break;

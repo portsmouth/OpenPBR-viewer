@@ -252,8 +252,8 @@ vec3 openpbr_bsdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint
                 vec3 s2 = exp(-11.43*A + 15.38*A2 - 13.91*A3);                 // Hyperion fit for one minus single scatter albedo
                 vec3 L = S * r;                                                // MFPs according to Hyperion paper
                 vec3 alpha = (1.0 - s2);                                       // Hyperion fit for single scatter albedo
-                vec3 mu_t = 1.0 / max(vec3(3.0*RAY_OFFSET), L);                // OpenPBR extinction remapping
-                //vec3 mu_t = 1.0 / max(vec3(3.0*RAY_OFFSET), r);              // (v2)
+                //vec3 mu_t = 1.0 / max(vec3(3.0*RAY_OFFSET), L);              // OpenPBR extinction remapping
+                vec3 mu_t = 1.0 / max(vec3(3.0*RAY_OFFSET), r);                // (v2)
                 internal_medium.albedo     = alpha / (1.0 - g*s2);             // remapped single-scattering albedo
                 internal_medium.extinction = mu_t * (1.0 - g*s2) / (1.0 - g);  // remapped extinction
                 internal_medium.anisotropy = g;
