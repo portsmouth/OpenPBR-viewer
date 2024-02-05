@@ -421,13 +421,17 @@ void main()
     float misWeightBSDF = 1.0; // For MIS book-keeping
 
     // Initialize volumetric medium of camera ray
-    // (NB, camera inside the interior is not handled properly here)
+    // (NB, camera inside the volume is not handled properly in this implementation, for simplicity)
     Volume exterior_medium;
     exterior_medium.extinction = vec3(0.0);
     exterior_medium.albedo     = vec3(0.0);
     Volume current_medium = exterior_medium;
-
     bool in_dielectric = false;
+
+    // Stochastically choose wavelength for potential dispersion effect
+    // (here just a crude uniform sample of the visible range)
+    bool dispersive = false;
+    wavelength_nm = 360.0 + (700.0 - 360.0)*rand(rndSeed);
 
     for (int vertex=0; vertex <= BOUNCES; vertex++)
     {
@@ -558,7 +562,19 @@ void main()
         bool transmitted = (material == MATERIAL_OPENPBR) && (dot(winputW, NgW) * dot(dW, NgW) < 0.0);
         if (transmitted)
         {
+            if (!in_dielectric && !dispersive)
+            {
+                // On first transmission into dielectric, apply associated color of stochastically chosen wavelength
+                // (where the color channel normalization here is just an approximation)
+                if (transmission_dispersion_scale > 0.0)
+                    surface_throughput *= xyzToRgb(xyzFit_1931(wavelength_nm)) * vec3(2.7, 3.3, 3.45);
+                dispersive = true;
+            }
+
+            // Update in_dielectric state
             in_dielectric = !in_dielectric;
+
+            // Thus update current medium
             if (in_dielectric)
                 current_medium = internal_medium;
             else

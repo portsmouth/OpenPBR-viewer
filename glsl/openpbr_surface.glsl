@@ -259,9 +259,6 @@ vec3 openpbr_bsdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint
                 internal_medium.anisotropy = g;
             }
 
-            // Specify also the Abbe number of the bulk dielectric, for dispersion effects
-            internal_medium.abbe_number = transmission_dispersion_abbe_number / max(DENOM_TOLERANCE, transmission_dispersion_scale);
-
             return f;
         }
     }

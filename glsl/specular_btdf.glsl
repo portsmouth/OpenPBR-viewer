@@ -22,7 +22,7 @@ vec3 specular_btdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
     // Compute IOR ratio at interface:
     //  eta_ti_photon = (IOR in hemi. of transmitted photon) / (IOR in hemi. of incident photon)
     float n_exterior = 1.0;
-    float n_interior = specular_ior;
+    float n_interior = specular_ior_dispersive();
     float eta_ti_photon = external_transmission ? n_exterior/n_interior : n_interior/n_exterior;
     if (abs(eta_ti_photon - 1.0) < IOR_EPSILON)
     {
@@ -106,7 +106,7 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     // Compute IOR ratio at interface:
     //  eta_ti_photon = (IOR in hemi. of transmitted photon) / (IOR in hemi. of incident photon)
     float n_exterior = 1.0;
-    float n_interior = specular_ior;
+    float n_interior = specular_ior_dispersive();
     float eta_ti_photon = external_transmission ? n_exterior/n_interior : n_interior/n_exterior;
     if (abs(eta_ti_photon - 1.0) < IOR_EPSILON)
     {
@@ -184,7 +184,7 @@ vec3 specular_btdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
 {
     // Estimate of the BTDF albedo, used to compute the discrete probability of selecting this lobe
     float n_exterior = 1.0;
-    float n_interior = specular_ior;
+    float n_interior = specular_ior_dispersive();
     float eta = n_interior/n_exterior;
     if (abs(eta - 1.0) < IOR_EPSILON)
     {

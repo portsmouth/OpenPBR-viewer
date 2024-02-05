@@ -88,12 +88,12 @@ const params =
     // lighting params
     //////////////////////////////////////////////////////
 
-    skyPower:                            0.8,
+    skyPower:                            0.5,
     skyColor:                            [0.8, 0.8, 1.0],
-    sunPower:                            0.5,
-    sunAngularSize:                      30.0,
+    sunPower:                            0.35,
+    sunAngularSize:                      40.0,
     sunLatitude:                         40.0,
-    sunLongitude:                        120.0,
+    sunLongitude:                        180.0,
     sunColor:                            [1.0, 1.0, 0.8],
 
     //////////////////////////////////////////////////////
@@ -306,6 +306,7 @@ function init()
 
             geometry_opacity:                    { value: params.geometry_opacity },
             geometry_thin_walled:                { value: params.geometry_thin_walled }
+
         },
 
         vertexShader: `
@@ -512,6 +513,7 @@ function setup(rtMaterial)
     renderer_folder.add( params, 'bounces', 1, 16, 1 ).onChange(                                      v => { rtMaterial.defines.BOUNCES = parseInt( v ); rtMaterial.needsUpdate = true; resetSamples(); });
     renderer_folder.add( params, 'wireframe' ).onChange(                                              v => { rtQuad.material.needsUpdate = true; resetSamples(); });
     renderer_folder.addColor(params, 'neutral_color').onChange(                                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
+
     renderer_folder.close();
 
     gui.open();
