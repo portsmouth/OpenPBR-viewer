@@ -142,7 +142,7 @@ float minComponent(in vec3 v)
     return min(v.x, min(v.y, v.z));
 }
 
-float sqr(float x) { return x*x; }
+#define sqr(x) ((x)*(x))
 
 float cosTheta2( in vec3 w)  { return w.z*w.z; }
 float cosTheta(  in vec3 w)  { return w.z; }
@@ -428,7 +428,6 @@ struct Volume
     vec3 extinction;    // units of inverse length
     vec3 albedo;        // dimensional, single-scattering albedo
     float anisotropy;   // phase function anisotropy in [-1, 1]
-    float abbe_number;  // dimensionless Abbe number for the embedding dielectric
 };
 
 // Sample Henyey-Greenstein phase function
@@ -446,4 +445,56 @@ vec3 samplePhaseFunction(in vec3 dW, float anisotropy, inout uint rndSeed)
     float phi = 2.0*PI*V;
     Basis basis = makeBasis(dW);
     return costheta*dW + sintheta*(cos(phi)*basis.tW + sin(phi)*basis.bW);
+}
+
+float wavelength_nm;
+
+// Wavelength-dependent IOR according to Cauchy formula
+float specular_ior_dispersive()
+{
+    const float lambda_C = 656.3;
+    const float lambda_d = 587.6;
+    const float lambda_F = 486.1;
+    const float lambda_FC2 = 1.0 / (1.0/(lambda_F*lambda_F) - 1.0/(lambda_C*lambda_C));
+    float Vd = transmission_dispersion_abbe_number / max(DENOM_TOLERANCE, transmission_dispersion_scale);
+    float nd = specular_ior;
+    float B = (nd - 1.0) * lambda_FC2 / max(DENOM_TOLERANCE, Vd);
+    float A = nd - B/sqr(lambda_d);
+    return A + B/sqr(wavelength_nm);
+}
+
+
+/////////////////////////////////////////////////////////////////////////
+// Color utils
+/////////////////////////////////////////////////////////////////////////
+
+// Spectrum to XYZ approx function from Sloan: http://jcgt.org/published/0002/02/01/paper.pdf
+// Inputs:  Wavelength in nanometers
+float xFit_1931(float w)
+{
+    float t1 = (w-442.0)*((w<442.0)?0.0624:0.0374),
+          t2 = (w-599.8)*((w<599.8)?0.0264:0.0323),
+          t3 = (w-501.1)*((w<501.1)?0.0490:0.0382);
+    return 0.362*exp(-0.5*t1*t1) + 1.056*exp(-0.5*t2*t2)- 0.065*exp(-0.5*t3*t3);
+}
+float yFit_1931(float w)
+{
+    float t1 = (w-568.8)*((w<568.8)?0.0213:0.0247),
+          t2 = (w-530.9)*((w<530.9)?0.0613:0.0322);
+    return 0.821*exp(-0.5*t1*t1) + 0.286*exp(-0.5*t2*t2);
+}
+float zFit_1931(float w)
+{
+    float t1 = (w-437.0)*((w<437.0)?0.0845:0.0278),
+          t2 = (w-459.0)*((w<459.0)?0.0385:0.0725);
+    return 1.217*exp(-0.5*t1*t1) + 0.681*exp(-0.5*t2*t2);
+}
+
+#define xyzFit_1931(w) vec3(xFit_1931(w), yFit_1931(w), zFit_1931(w))
+
+vec3 xyzToRgb(vec3 XYZ)
+{
+	return XYZ * mat3( 3.240479, -1.537150, -0.498535,
+	                  -0.969256 , 1.875991,  0.041556,
+	                   0.055648, -0.204043,  1.057311);
 }
