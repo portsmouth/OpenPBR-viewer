@@ -107,7 +107,7 @@ const params =
 
     specular_weight:                     1.0,
     specular_color:                      [1.0, 1.0, 1.0],
-    specular_roughness:                  0.3,
+    specular_roughness:                  0.1,
     specular_anisotropy:                 0.0,
     specular_rotation:                   0.0,
     specular_ior:                        1.5,
@@ -123,7 +123,7 @@ const params =
 
     subsurface_weight:                   0.0,
     subsurface_color:                    [0.8, 0.8, 0.8],
-    subsurface_radius:                   0.01,
+    subsurface_radius:                   0.2,
     subsurface_radius_scale:             [1.0, 0.5, 0.25],
     subsurface_anisotropy:               0.0,
 
@@ -470,7 +470,7 @@ function setup(rtMaterial)
     const subsurface_folder = material_folder.addFolder('Subsurface');
     subsurface_folder.add(params,      'subsurface_weight', 0.0, 1.0).onChange(                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
     subsurface_folder.addColor(params, 'subsurface_color').onChange(                                  v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    subsurface_folder.add(params,      'subsurface_radius', 0.0, 10.0).onChange(                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    subsurface_folder.add(params,      'subsurface_radius', 0.0, 1.0).onChange(                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
     subsurface_folder.addColor(params, 'subsurface_radius_scale').onChange(                           v => { rtMaterial.needsUpdate = true; resetSamples(); });
     subsurface_folder.add(params,      'subsurface_anisotropy', -1.0, 1.0).onChange(                  v => { rtMaterial.needsUpdate = true; resetSamples(); });
     subsurface_folder.close();
