@@ -109,7 +109,7 @@ const float RECIPROCAL_PI2        = 0.15915494309189535;
 
 // tolerances
 const float HUGE_DIST             = 1.0e20;
-const float RAY_OFFSET            = 1.0e-3;
+const float RAY_OFFSET            = 1.0e-4;
 const float DENOM_TOLERANCE       = 1.0e-12;
 const float RADIANCE_EPSILON      = 1.0e-12;
 const float TRANSMITTANCE_EPSILON = 1.0e-4;
@@ -142,11 +142,6 @@ float minComponent(in vec3 v)
     return min(v.x, min(v.y, v.z));
 }
 
-float averageComponent(in vec3 v)
-{
-    return (v.x + v.y + v.z)/3.0;
-}
-
 float sqr(float x) { return x*x; }
 
 float cosTheta2( in vec3 w)  { return w.z*w.z; }
@@ -157,34 +152,6 @@ float tanTheta2(in vec3 nLocal) { float ct2 = cosTheta2(nLocal); return max(0.0,
 float tanTheta(in vec3 nLocal)  { return sqrt(max(0.0, tanTheta2(nLocal))); }
 float cosPhi(in vec3 w) { float S = sinTheta(w); return (S == 0.0) ? 1.0 : clamp(w.x / S, -1.0, 1.0); }
 float sinPhi(in vec3 w) { float S = sinTheta(w); return (S == 0.0) ? 1.0 : clamp(w.y / S, -1.0, 1.0); }
-
-/////////////////////////////////////////////////////////////////////////
-// RNG
-/////////////////////////////////////////////////////////////////////////
-
-// https://www.pcg-random.org/
-uint pcg(uint v)
-{
-	uint state = v * 747796405u + 2891336453u;
-	uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-	return (word >> 22u) ^ word;
-}
-
-void xorshift(inout uint seed)
-{
-    // https://en.wikipedia.org/wiki/Xorshift
-    seed ^= seed << 13u;
-    seed ^= seed >> 17u;
-    seed ^= seed << 5u;
-}
-
-float rand(inout uint seed)
-{
-    seed = pcg(seed);
-    const float uint_range = 1.0 / float(0xFFFFFFFFU);
-    return float(seed - 1U) * uint_range;
-}
-
 
 /////////////////////////////////////////////////////////////////////////
 // Transform to/from local space basis (i.e. tangent space frame)
@@ -304,10 +271,33 @@ vec3 rotatedToLocal(in vec3 vRotated, in LocalFrameRotation rotation)
 // Sampling formulae
 /////////////////////////////////////////////////////////////////////////
 
+// https://www.pcg-random.org/
+uint pcg(uint v)
+{
+	uint state = v * 747796405u + 2891336453u;
+	uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+	return (word >> 22u) ^ word;
+}
+
+void xorshift(inout uint seed)
+{
+    // https://en.wikipedia.org/wiki/Xorshift
+    seed ^= seed << 13u;
+    seed ^= seed >> 17u;
+    seed ^= seed << 5u;
+}
+
+float rand(inout uint seed)
+{
+    seed = pcg(seed);
+    const float uint_range = 1.0 / float(0xFFFFFFFFU);
+    return float(seed - 1U) * uint_range;
+}
+
 // PDF for cosine-weighted sampling of hemisphere
 float pdfHemisphereCosineWeighted(in vec3 wiL)
 {
-    if (wiL.z < 0.0) return 0.0;
+    if (wiL.z <= PDF_EPSILON) return PDF_EPSILON / PI;
     return wiL.z / PI;
 }
 
@@ -323,9 +313,9 @@ vec3 sampleHemisphereCosineWeighted(inout uint rndSeed, inout float pdf)
     return vec3(x, y, z);
 }
 
-float balanceHeuristic(const float a, const float b)
+float powerHeuristic(const float a, const float b)
 {
-    return a / max(DENOM_TOLERANCE, a + b);
+    return sqr(a) / max(DENOM_TOLERANCE, sqr(a) + sqr(b));
 }
 
 float sample_triangle_filter(float xi)

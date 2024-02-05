@@ -3,12 +3,10 @@
 // "Metal" conductor microfacet BSDF
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-
 vec3 FresnelSchlick(vec3 F0, float mu)
 {
     return F0 + pow(1.0 - mu, 5.0)*(vec3(1.0) - F0);
 }
-
 
 vec3 FresnelF82Tint(float mu, in vec3 F0, in vec3 F82tint)
 {
@@ -48,7 +46,7 @@ vec3 metal_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wo
 
     // Thus compute PDF of woutputL sample
     float dwh_dwo = 1.0 / max(abs(4.0*dot(winputR, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
-    pdf_woutputL = DV * dwh_dwo;
+    pdf_woutputL = max(PDF_EPSILON, DV * dwh_dwo);
 
     // Compute Fresnel factor for the conductor reflection
     vec3 F = FresnelF82Tint(abs(dot(winputR, mR)), base_weight * base_color, specular_weight * specular_color);
@@ -64,7 +62,11 @@ vec3 metal_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wo
 vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
                        out vec3 woutputL, out float pdf_woutputL)
 {
-    if (winputL.z < DENOM_TOLERANCE) return vec3(0.0);
+    if (winputL.z < DENOM_TOLERANCE)
+    {
+        pdf_woutputL = PDF_EPSILON;
+        return vec3(0.0);
+    }
 
     // Compute the NDF roughnesses in the rotated frame
     // (Note that the metal shares the same NDF as the dielectric/specular base)
@@ -80,8 +82,8 @@ vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint r
 
     // Compute woutputR (and thus woutputL) by reflecting winputR about mR
     vec3 woutputR = -winputR + 2.0*dot(winputR, mR)*mR;
-    if (winputR.z * woutputR.z < 0.0)
-        woutputR *= -1.0; // flip if reflected ray direction in wrong hemisphere (in absence of a multi-scatter approx. currently)
+    if (winputR.z * woutputR.z < FLT_EPSILON)
+        return vec3(0.0); // no reflection if ray direction in wrong hemisphere (in absence of a multi-scatter approx. currently)
     woutputL = rotatedToLocal(woutputR, rotation);
 
     // Compute NDF, and "distribution of visible normals" DV
@@ -90,7 +92,7 @@ vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint r
 
     // Thus compute PDF of woutputL sample
     float dwh_dwo = 1.0 / max(abs(4.0*dot(winputR, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
-    pdf_woutputL = DV * dwh_dwo;
+    pdf_woutputL = max(PDF_EPSILON, DV * dwh_dwo);
 
     // Compute Fresnel factor for the conductor reflection
     vec3 F = FresnelF82Tint(abs(dot(winputR, mR)), base_weight * base_color, specular_weight * specular_color);

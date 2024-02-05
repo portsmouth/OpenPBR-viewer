@@ -21,10 +21,7 @@ vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
 {
     bool transmitted = woutputL.z * winputL.z < 0.0;
     if (transmitted)
-    {
-        pdf_woutputL = 1.0;
         return vec3(0.0);
-    }
 
     // We assume that the local frame is setup so that the z direction points from the dielectric interior to the exterior.
     // Thus we can determine if the reflection is internal or external to the dielectric:
@@ -36,12 +33,8 @@ vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
     float n_exterior = 1.0;
     float n_interior = specular_ior;
     float eta_ti_refl = external_reflection ? n_interior/n_exterior : n_exterior/n_interior;
-    if (abs(eta_ti_refl - 1.0) < IOR_EPSILON)
-    {
-        // degenerate case of index-matched interface, BRDF goes to zero
-        pdf_woutputL = 1.0;
+    if (abs(eta_ti_refl - 1.0) < IOR_EPSILON) // degenerate case of index-matched interface, BRDF goes to zero
         return vec3(0.0);
-    }
 
     // Non-physical Fresnel tint to apply
     vec3 tint = specular_weight * specular_color;
@@ -60,10 +53,7 @@ vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
 
     // Discard backfacing microfacets
     if (dot(mR, winputR) * winputR.z < 0.0 || dot(mR, woutputR) * woutputR.z < 0.0)
-    {
-        pdf_woutputL = 1.0;
         return vec3(0.0);
-    }
 
     // Compute NDF
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
@@ -98,12 +88,8 @@ vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     float n_exterior = 1.0;
     float n_interior = specular_ior;
     float eta_ti_refl = external_reflection ? n_interior/n_exterior : n_exterior/n_interior;
-    if (abs(eta_ti_refl - 1.0) < IOR_EPSILON)
-    {
-        // degenerate case of index-matched interface, BRDF goes to zero
-        pdf_woutputL = 1.0;
+    if (abs(eta_ti_refl - 1.0) < IOR_EPSILON) // degenerate case of index-matched interface, BRDF goes to zero
         return vec3(0.0);
-    }
 
     // Non-physical Fresnel tint to apply
     vec3 tint = specular_weight * specular_color;
@@ -117,17 +103,15 @@ vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     vec3 winputR = localToRotated(winputL, rotation);
 
     // Sample local microfacet normal mR, according to Heitz "Sampling the GGX Distribution of Visible Normals"
-    //vec3 mR = ggx_ndf_sample(winputR, alpha_x, alpha_y, rndSeed);
     vec3 mR;
     if (winputR.z > 0.0)
         mR = ggx_ndf_sample(winputR, alpha_x, alpha_y, rndSeed);
-        //mR = microfacetSample(rndSeed, alpha_x);
     else
     {
+        // GGX sampling in negative hemisphere
         vec3 winputR_reflected = winputR;
         winputR_reflected.z *= -1.0;
         mR = ggx_ndf_sample(winputR_reflected, alpha_x, alpha_y, rndSeed);
-        //mR = microfacetSample(rndSeed, alpha_x);
         mR.z *= -1.0;
     }
 
@@ -144,17 +128,14 @@ vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    //float D = microfacetEval(mR, alpha_x);
     float DV = D * ggx_G1(winputR, alpha_x, alpha_y) * abs(dot(winputR, mR)) / max(DENOM_TOLERANCE, abs(winputR.z));
 
     // Thus compute PDF of woutputL sample
     float dwh_dwo = 1.0 / max(abs(4.0*dot(winputR, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
     pdf_woutputL = DV * dwh_dwo;
-    //pdf_woutputL = microfacetPDF(mR, alpha_x) * dwh_dwo;
 
     // Compute shadowing-masking term
     float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
-    //float G2 = smithG2(woutputR, winputR, mR, alpha_x);
 
     // Compute Fresnel factor for the dielectric reflection
     float F = FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl);
@@ -178,7 +159,7 @@ vec3 specular_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     }
 
     // Approximate albedo via Monte-Carlo sampling:
-    const int num_samples = 4;
+    const int num_samples = 1;
     vec3 albedo = vec3(0.0);
     for (int n=0; n<num_samples; ++n)
     {

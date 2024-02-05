@@ -194,7 +194,7 @@ vec3 specular_btdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     }
 
     // Approximate albedo via Monte-Carlo sampling:
-    const int num_samples = 2;
+    const int num_samples = 1;
     vec3 albedo = vec3(0.0);
     for (int n=0; n<num_samples; ++n)
     {

@@ -80,7 +80,7 @@ const params =
     //////////////////////////////////////////////////////
 
 	smooth_normals:                     true,
-    bounces:                            2,
+    bounces:                            6,
     wireframe:                          true,
     neutral_color:                      [0.5, 0.5, 0.5],
 
@@ -88,13 +88,13 @@ const params =
     // lighting params
     //////////////////////////////////////////////////////
 
-    skyPower:                            1.0,
+    skyPower:                            0.8,
     skyColor:                            [0.8, 0.8, 1.0],
-    sunPower:                            3.0,
-    sunAngularSize:                      2.0,
+    sunPower:                            0.5,
+    sunAngularSize:                      30.0,
     sunLatitude:                         40.0,
-    sunLongitude:                        0.0,
-    sunColor:                            [1.0, 1.0, 1.0],
+    sunLongitude:                        120.0,
+    sunColor:                            [1.0, 1.0, 0.8],
 
     //////////////////////////////////////////////////////
     // OpenPBR surface params
