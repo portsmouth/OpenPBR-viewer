@@ -49,7 +49,6 @@ uniform float specular_roughness;
 uniform float specular_anisotropy;
 uniform float specular_rotation;
 uniform float specular_ior;
-uniform float specular_ior_level;
 
 uniform float transmission_weight;
 uniform vec3  transmission_color;
@@ -71,7 +70,6 @@ uniform float coat_roughness;
 uniform float coat_anisotropy;
 uniform float coat_rotation;
 uniform float coat_ior;
-uniform float coat_ior_level;
 
 uniform float fuzz_weight;
 uniform vec3  fuzz_color;

@@ -111,7 +111,6 @@ const params =
     specular_anisotropy:                 0.0,
     specular_rotation:                   0.0,
     specular_ior:                        1.5,
-    specular_ior_level:                  0.5,
 
     transmission_weight:                 0.0,
     transmission_color:                  [1.0, 1.0, 1.0],
@@ -133,7 +132,6 @@ const params =
     coat_anisotropy:                     0.0,
     coat_rotation:                       0.0,
     coat_ior:                            1.6,
-    coat_ior_level:                      0.5,
 
     fuzz_weight:                         0.0,
     fuzz_color:                          [1.0, 1.0, 1.0],
@@ -276,7 +274,6 @@ function init()
             specular_anisotropy:                 { value: params.specular_anisotropy },
             specular_rotation:                   { value: params.specular_rotation },
             specular_ior:                        { value: params.specular_ior  },
-            specular_ior_level:                  { value: params.specular_ior_level  },
 
             transmission_weight:                 { value: params.transmission_weight, },
             transmission_color:                  { value: array_to_vector3(params.transmission_color) },
@@ -298,7 +295,6 @@ function init()
             coat_anisotropy:                     { value: params.coat_anisotropy },
             coat_rotation:                       { value: params.coat_rotation },
             coat_ior:                            { value: params.coat_ior  },
-            coat_ior_level:                      { value: params.coat_ior_level  },
 
             fuzz_weight:                         { value: params.fuzz_weight },
             fuzz_color:                          { value: array_to_vector3(params.fuzz_color) },
@@ -439,7 +435,7 @@ function setup(rtMaterial)
     // Setup GUI
     //////////////////////////////////////////////////////////
 
-    gui = new GUI();
+    gui = new GUI({ width: 300 });
 
     const material_folder = gui.addFolder('Material');
 
@@ -454,7 +450,6 @@ function setup(rtMaterial)
     specular_folder.addColor(params, 'specular_color').onChange(                                      v => { rtMaterial.needsUpdate = true; resetSamples(); });
     specular_folder.add(params,      'specular_roughness', 0.0, 1.0).onChange(                        v => { rtMaterial.needsUpdate = true; resetSamples(); });
     specular_folder.add(params,      'specular_ior', 1.0, 5.0).onChange(                              v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    specular_folder.add(params,      'specular_ior_level', 0.0, 1.0).onChange(                        v => { rtMaterial.needsUpdate = true; resetSamples(); });
     specular_folder.add(params,      'specular_anisotropy', 0.0, 1.0).onChange(                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
     specular_folder.add(params,      'specular_rotation', 0.0, 1.0).onChange(                         v => { rtMaterial.needsUpdate = true; resetSamples(); });
 
@@ -481,7 +476,6 @@ function setup(rtMaterial)
     coat_folder.addColor(params,     'coat_color').onChange(                                          v => { rtMaterial.needsUpdate = true; resetSamples(); });
     coat_folder.add(params,          'coat_roughness', 0.0, 1.0).onChange(                            v => { rtMaterial.needsUpdate = true; resetSamples(); });
     coat_folder.add(params,          'coat_ior', 1.0, 3.0).onChange(                                  v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    coat_folder.add(params,          'coat_ior_level', 0.0, 1.0).onChange(                            v => { rtMaterial.needsUpdate = true; resetSamples(); });
     coat_folder.add(params,          'coat_anisotropy', 0.0, 1.0).onChange(                           v => { rtMaterial.needsUpdate = true; resetSamples(); });
     coat_folder.add(params,          'coat_rotation', 0.0, 1.0).onChange(                             v => { rtMaterial.needsUpdate = true; resetSamples(); });
 
@@ -611,7 +605,6 @@ function render()
         uniforms.specular_anisotropy.value                    = params.specular_anisotropy;
         uniforms.specular_rotation.value                      = params.specular_rotation;
         uniforms.specular_ior.value                           = params.specular_ior;
-        uniforms.specular_ior_level.value                     = params.specular_ior_level;
 
         uniforms.transmission_weight.value                    = params.transmission_weight;
         uniforms.transmission_color.value.copy(get_vector3(     params.transmission_color));
@@ -633,7 +626,6 @@ function render()
         uniforms.coat_anisotropy.value                        = params.coat_anisotropy;
         uniforms.coat_rotation.value                          = params.coat_rotation;
         uniforms.coat_ior.value                               = params.coat_ior;
-        uniforms.coat_ior_level.value                         = params.coat_ior_level;
 
         uniforms.fuzz_weight.value                            = params.fuzz_weight;
         uniforms.fuzz_color.value.copy(get_vector3(             params.fuzz_color));
