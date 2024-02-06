@@ -504,9 +504,7 @@ void main()
             // Orient local shading normal so that it points from the surface interior to the exterior
             if ( (in_dielectric && dot(NsW, dW) < 0.0) ||
                 (!in_dielectric && dot(NsW, dW) > 0.0))
-            {
                 NsW *= -1.0;
-            }
         }
         else
         {

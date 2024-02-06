@@ -46,7 +46,7 @@ LobeProbs   lobe_probs;
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // Construct weights of individual BSDF lobes, according to OpenPBR surface model (in the non-reciprocal albedo-scaling approximation).
-// Note that this requires computing the albedos of some of the lobes.
+// Also compute the albedos of the (non-zero weight) lobes.
 void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
                           inout LobeWeights weights, inout LobeAlbedos albedos)
 {
