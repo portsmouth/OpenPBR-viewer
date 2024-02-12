@@ -108,7 +108,7 @@ const float RECIPROCAL_PI2        = 0.15915494309189535;
 // tolerances
 const float HUGE_DIST             = 1.0e20;
 const float RAY_OFFSET            = 1.0e-4;
-const float DENOM_TOLERANCE       = 1.0e-12;
+const float DENOM_TOLERANCE       = 1.0e-10;
 const float RADIANCE_EPSILON      = 1.0e-12;
 const float TRANSMITTANCE_EPSILON = 1.0e-4;
 const float THROUGHPUT_EPSILON    = 1.0e-6;
@@ -164,41 +164,26 @@ struct Basis
     vec3 baryCoord;
 };
 
-void setFrame(in vec3 nW, inout Basis basis)
+vec3 normalToTangent(in vec3 N)
 {
-    basis.nW = safe_normalize(nW);
-    if (abs(nW.z) < abs(nW.x))
-    {
-        basis.tW.x =  nW.z;
-        basis.tW.y =  0.0;
-        basis.tW.z = -nW.x;
-    }
+    vec3 T;
+    if (abs(N.z) < abs(N.x))
+        T = vec3(N.z, 0.0, -N.x);
     else
-    {
-        basis.tW.x =  0.0;
-        basis.tW.y =  nW.z;
-        basis.tW.z = -nW.y;
-    }
-    basis.tW = safe_normalize(basis.tW);
-    basis.bW = cross(basis.nW, basis.tW);
+        T = vec3(0.0, N.z, -N.y);
+    T = safe_normalize(T);
+    return T;
 }
 
 Basis makeBasis(in vec3 nW)
 {
     Basis basis;
-    setFrame(nW, basis);
+    basis.nW = safe_normalize(nW);
+    basis.tW = normalToTangent(nW);
+    basis.bW = cross(basis.nW, basis.tW);
     return basis;
 }
 
-Basis makeBasis(in vec3 nW, in vec3 baryCoord)
-{
-    Basis basis;
-    setFrame(nW, basis);
-    basis.baryCoord = baryCoord;
-    return basis;
-}
-
-/*
 Basis makeBasis(in vec3 nW, in vec3 tW, in vec3 baryCoord)
 {
     Basis basis;
@@ -208,7 +193,6 @@ Basis makeBasis(in vec3 nW, in vec3 tW, in vec3 baryCoord)
     basis.baryCoord = baryCoord;
     return basis;
 }
-*/
 
 vec3 worldToLocal(in vec3 vWorld, in Basis basis)
 {
