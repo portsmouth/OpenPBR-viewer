@@ -19,30 +19,59 @@
             bottom: 0;
             left: 0;
             padding: 5px;
+            width: 100%;
+            height: 100%;
             color: #3d0404;
-            opacity: 0.66;
             font-family: monospace;
             pointer-events: none;
             white-space: pre;
         }
+        #samples {
+            position: absolute;
+            bottom: 0;
+            left: 10px;
+            width: 100%;
+            color: #0e1125;
+            opacity: 0.9;
+            font-family: monospace;
+            text-align: left;
+            padding: 10px 0;
+            text-shadow: 2px 2px 0px rgb(255, 255, 255)(255, 255, 255);
+        }
         #info {
             position: absolute;
             top: 0;
+            left: 0;
             width: 100%;
             color: #777;
             opacity: 0.9;
             font-family: monospace;
             text-align: center;
-            padding: 5px 0;
+            padding: 10px 0;
+        }
+        #progress_overlay {
+            display: block;
+            width: 200px;
+            height: 200px;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            position: absolute;
+            z-index:9999;
+            color:#fff;
+            opacity: 1.0;
+            overflow:hidden;
         }
     </style>
-  <script type="module" crossorigin src="/OpenPBR-glsl-example/assets/index-i3D6-2nf.js"></script>
+  <script type="module" crossorigin src="/OpenPBR-glsl-example/assets/index-EdsRPQdp.js"></script>
 </head>
 <body>
 	<div id="info">
 		OpenPBR GLSL pathtracer example.
 	</div>
-    <div id="output"></div>
+    <div id="samples"></div>
+    <div id="output">
+        <div id="progress_overlay"></div>
+    </div>
 </body>
-
 </html>
