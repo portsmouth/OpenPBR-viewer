@@ -1,6 +1,7 @@
 
 import { Vector2, Vector3, Matrix4, Box3,
-         Mesh, MeshBasicMaterial, ShaderMaterial, Scene, PerspectiveCamera,
+         Mesh, MeshBasicMaterial, ShaderMaterial, Scene, PerspectiveCamera, OrthographicCamera,
+         DirectionalLight, AmbientLight,
          sRGBEncoding, RGBAFormat, FloatType,
          WebGLRenderer, WebGLRenderTarget } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -23,6 +24,8 @@ import glsl_specular_btdf   from './glsl/specular_btdf.glsl?raw'
 import glsl_diffuse_brdf    from './glsl/diffuse_brdf.glsl?raw'
 import glsl_openpbr_surface from './glsl/openpbr_surface.glsl?raw'
 import glsl_pathtracer      from './glsl/pathtracer.glsl?raw'
+
+import { Circle } from 'progressbar.js'
 
 class MeshLoader
 {
@@ -143,17 +146,20 @@ const params =
 };
 
 let renderer, camera, scene, gui, stats;
-let rtQuad, finalQuad, renderTarget;
+let rtQuad, rtMaterial, finalQuad, renderTarget;
 let samples = 0;
-let outputContainer;
 
 let MESH_SURFACE;
 let MESH_PROPS;
-
 let BVH_SURFACE;
 let BVH_PROPS;
 
-let LOADED;
+var progress_bar;
+var progress_finished_timer;
+
+var LOADED;
+var COMPILING;
+
 
 init();
 render();
@@ -176,6 +182,46 @@ function init()
 {
     console.log('init');
 
+    // Setup progress bar spinner
+    progress_bar = new Circle('#progress_overlay',
+    {
+        color: 'rgba(255, 128, 64, 0.75)',
+        strokeWidth: 5.0,
+        trailColor: 'rgba(255, 128, 64, 0.333)',
+        trailWidth: 3.0,
+        svgStyle: {
+            display: 'block',
+            width: '100%'
+        },
+        text: {
+            value: '',
+            className: 'progressbar__label',
+            style: {
+                color: 'rgba(169, 85, 42, 1.0)',
+                position: 'absolute',
+                fontWeight: 'bold',
+                left: '50%',
+                top: '50%',
+                padding: 0,
+                margin: 0,
+                transform: {
+                    prefix: true,
+                    value: 'translate(-50%, -50%)'
+                }
+            },
+            autoStyleContainer: true,
+            alignToBottom: true
+        },
+        fill: null,
+        duration: 2000.0,
+        easing: 'linear',
+        from: { color: 'rgba( 0,   0,  0, 0.0)' },
+        to: {   color: 'rgba(32, 255, 32, 1.0)' },
+        warnings: true
+    });
+    progress_bar.set(0.0);
+    progress_bar.setText('');
+
     LOADED = false;
     MESH_SURFACE = null;
     MESH_PROPS = null;
@@ -191,8 +237,6 @@ function init()
 	renderer.outputEncoding = sRGBEncoding;
 	document.body.appendChild( renderer.domElement );
 
-    outputContainer = document.getElementById('output');
-
 	// scene setup
 	scene = new Scene();
 
@@ -202,6 +246,12 @@ function init()
 	camera.far = 100;
 	camera.updateProjectionMatrix();
 
+    // dummy light for preview while shaders compiling
+	const light = new DirectionalLight( 0xffffff, 1 );
+	light.position.set( 1, 1, 1 );
+	scene.add( light );
+	scene.add( new AmbientLight( 0xb0bec5, 0.5 ) );
+
     // stats setup
 	stats = new Stats();
 	document.body.appendChild( stats.dom );
@@ -210,7 +260,7 @@ function init()
     // OpenPBR surface params
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    const rtMaterial = new ShaderMaterial( {
+    rtMaterial = new ShaderMaterial( {
 
         defines:
         {
@@ -333,6 +383,9 @@ function init()
 
     } );
 
+    progress_bar.setText('loading meshes...');
+    progress_bar.animate(0.5);
+
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // initialize the scene and update the material properties with the bvh, materials, etc
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -358,6 +411,7 @@ function init()
         console.log("  has_normals_scene:  ", rtMaterial.uniforms.has_normals_props);
         console.log("  has_tangents_scene: ", rtMaterial.uniforms.has_tangents_props);
 
+        progress_bar.animate(0.75);
         loader.reset();
         loader.load('standard-shader-ball/shaderball.gltf').then( () => {
 
@@ -380,16 +434,21 @@ function init()
             console.log("  has_normals_surface:  ", rtMaterial.uniforms.has_normals_surface);
             console.log("  has_tangents_surface: ", rtMaterial.uniforms.has_tangents_surface);
 
-            setup(rtMaterial);
             console.log("===> LOADED");
             LOADED = true;
+            post_load_setup();
+
+            progress_bar.animate(1.0);
+            let progress_overlay = document.getElementById('progress_overlay');
+            progress_finished_timer = performance.now();
+
         } )
 
     } )
 
 }
 
-function setup(rtMaterial)
+function post_load_setup()
 {
     //////////////////////////////////////////////////////////
     // Setup camera
@@ -397,7 +456,6 @@ function setup(rtMaterial)
 
     let orbitControls = new OrbitControls( camera, renderer.domElement );
 	orbitControls.addEventListener( 'change', () => { resetSamples(); } );
-
 
     let bounds = new Box3()
     bounds.setFromObject(MESH_SURFACE);
@@ -431,6 +489,9 @@ function setup(rtMaterial)
 	renderTarget = new WebGLRenderTarget(1, 1, {format: RGBAFormat, type: FloatType});
 	finalQuad = new FullScreenQuad( new MeshBasicMaterial({map: renderTarget.texture}) );
 
+    // Trigger initial shader compile
+    trigger_recompile();
+
     //////////////////////////////////////////////////////////
     // Setup GUI
     //////////////////////////////////////////////////////////
@@ -440,74 +501,75 @@ function setup(rtMaterial)
     const material_folder = gui.addFolder('Material');
 
     const base_folder = material_folder.addFolder('Base');
-    base_folder.add(params,          'base_weight', 0.0, 1.0).onChange(                               v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    base_folder.addColor(params,     'base_color').onChange(                                          v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    base_folder.add(params,          'base_roughness', 0.0, 1.0).onChange(                            v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    base_folder.add(params,          'base_metalness', 0.0, 1.0).onChange(                            v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    base_folder.add(params,          'base_weight', 0.0, 1.0).onChange(                               v => { resetSamples(); });
+    base_folder.addColor(params,     'base_color').onChange(                                          v => { resetSamples(); });
+    base_folder.add(params,          'base_roughness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
+    base_folder.add(params,          'base_metalness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
 
     const specular_folder = material_folder.addFolder('Specular');
-    specular_folder.add(params,      'specular_weight', 0.0, 1.0).onChange(                           v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    specular_folder.addColor(params, 'specular_color').onChange(                                      v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    specular_folder.add(params,      'specular_roughness', 0.0, 1.0).onChange(                        v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    specular_folder.add(params,      'specular_ior', 1.0, 5.0).onChange(                              v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    specular_folder.add(params,      'specular_anisotropy', 0.0, 1.0).onChange(                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    specular_folder.add(params,      'specular_rotation', 0.0, 1.0).onChange(                         v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    specular_folder.add(params,      'specular_weight', 0.0, 1.0).onChange(                           v => { resetSamples(); });
+    specular_folder.addColor(params, 'specular_color').onChange(                                      v => { resetSamples(); });
+    specular_folder.add(params,      'specular_roughness', 0.0, 1.0).onChange(                        v => { resetSamples(); });
+    specular_folder.add(params,      'specular_ior', 1.0, 5.0).onChange(                              v => { resetSamples(); });
+    specular_folder.add(params,      'specular_anisotropy', 0.0, 1.0).onChange(                       v => { resetSamples(); });
+    specular_folder.add(params,      'specular_rotation', 0.0, 1.0).onChange(                         v => { resetSamples(); });
 
     const transmission_folder = material_folder.addFolder('Transmission');
-    transmission_folder.add(params,      'transmission_weight', 0.0, 1.0).onChange(                   v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    transmission_folder.addColor(params, 'transmission_color').onChange(                              v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    transmission_folder.add(params,      'transmission_depth', 0.0, 1.0).onChange(                    v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    transmission_folder.addColor(params, 'transmission_scatter').onChange(                            v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    transmission_folder.add(params,      'transmission_scatter_anisotropy', -1.0, 1.0).onChange(      v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    transmission_folder.add(params,      'transmission_dispersion_abbe_number', 9.0, 91.0).onChange(  v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    transmission_folder.add(params,      'transmission_dispersion_scale', 0.0, 1.0).onChange(         v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    transmission_folder.add(params,      'transmission_weight', 0.0, 1.0).onChange(                   v => { resetSamples(); });
+    transmission_folder.addColor(params, 'transmission_color').onChange(                              v => { resetSamples(); });
+    transmission_folder.add(params,      'transmission_depth', 0.0, 1.0).onChange(                    v => { resetSamples(); });
+    transmission_folder.addColor(params, 'transmission_scatter').onChange(                            v => { resetSamples(); });
+    transmission_folder.add(params,      'transmission_scatter_anisotropy', -1.0, 1.0).onChange(      v => { resetSamples(); });
+    transmission_folder.add(params,      'transmission_dispersion_abbe_number', 9.0, 91.0).onChange(  v => { resetSamples(); });
+    transmission_folder.add(params,      'transmission_dispersion_scale', 0.0, 1.0).onChange(         v => { resetSamples(); });
     transmission_folder.close();
 
     const subsurface_folder = material_folder.addFolder('Subsurface');
-    subsurface_folder.add(params,      'subsurface_weight', 0.0, 1.0).onChange(                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    subsurface_folder.addColor(params, 'subsurface_color').onChange(                                  v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    subsurface_folder.add(params,      'subsurface_radius', 0.0, 1.0).onChange(                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    subsurface_folder.addColor(params, 'subsurface_radius_scale').onChange(                           v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    subsurface_folder.add(params,      'subsurface_anisotropy', -1.0, 1.0).onChange(                  v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    subsurface_folder.add(params,      'subsurface_weight', 0.0, 1.0).onChange(                       v => { resetSamples(); });
+    subsurface_folder.addColor(params, 'subsurface_color').onChange(                                  v => { resetSamples(); });
+    subsurface_folder.add(params,      'subsurface_radius', 0.0, 1.0).onChange(                       v => { resetSamples(); });
+    subsurface_folder.addColor(params, 'subsurface_radius_scale').onChange(                           v => { resetSamples(); });
+    subsurface_folder.add(params,      'subsurface_anisotropy', -1.0, 1.0).onChange(                  v => { resetSamples(); });
     subsurface_folder.close();
 
     const coat_folder = material_folder.addFolder('Coat');
-    coat_folder.add(params,          'coat_weight', 0.0, 1.0).onChange(                               v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    coat_folder.addColor(params,     'coat_color').onChange(                                          v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    coat_folder.add(params,          'coat_roughness', 0.0, 1.0).onChange(                            v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    coat_folder.add(params,          'coat_ior', 1.0, 3.0).onChange(                                  v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    coat_folder.add(params,          'coat_anisotropy', 0.0, 1.0).onChange(                           v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    coat_folder.add(params,          'coat_rotation', 0.0, 1.0).onChange(                             v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    coat_folder.add(params,          'coat_weight', 0.0, 1.0).onChange(                               v => { resetSamples(); });
+    coat_folder.addColor(params,     'coat_color').onChange(                                          v => { resetSamples(); });
+    coat_folder.add(params,          'coat_roughness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
+    coat_folder.add(params,          'coat_ior', 1.0, 3.0).onChange(                                  v => { resetSamples(); });
+    coat_folder.add(params,          'coat_anisotropy', 0.0, 1.0).onChange(                           v => { resetSamples(); });
+    coat_folder.add(params,          'coat_rotation', 0.0, 1.0).onChange(                             v => { resetSamples(); });
 
     const fuzz_folder = material_folder.addFolder('Fuzz');
-    fuzz_folder.add(params,          'fuzz_weight', 0.0, 1.0).onChange(                               v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    fuzz_folder.addColor(params,     'fuzz_color').onChange(                                          v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    fuzz_folder.add(params,          'fuzz_roughness', 0.0, 1.0).onChange(                            v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    fuzz_folder.add(params,          'fuzz_weight', 0.0, 1.0).onChange(                               v => { resetSamples(); });
+    fuzz_folder.addColor(params,     'fuzz_color').onChange(                                          v => { resetSamples(); });
+    fuzz_folder.add(params,          'fuzz_roughness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
     fuzz_folder.close();
 
     const geometry_folder = material_folder.addFolder('Geometry');
-    geometry_folder.add(params,      'geometry_opacity', 0.0, 1.0).onChange(                          v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    geometry_folder.add(params,      'geometry_thin_walled').onChange(                                v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    geometry_folder.add(params,      'geometry_opacity', 0.0, 1.0).onChange(                          v => { resetSamples(); });
+    geometry_folder.add(params,      'geometry_thin_walled').onChange(                                v => { resetSamples(); });
     geometry_folder.close();
 
     const lighting_folder = gui.addFolder('Lighting');
-    lighting_folder.add(params, 'skyPower', 0.0, 2.0).onChange(                                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    lighting_folder.addColor(params, 'skyColor').onChange(                                            v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    lighting_folder.add(params, 'skyPower', 0.0, 2.0).onChange(                                       v => { resetSamples(); });
+    lighting_folder.addColor(params, 'skyColor').onChange(                                            v => { resetSamples(); });
 
-    lighting_folder.add(params, 'sunPower', -4.0, 4.0).onChange(                                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    lighting_folder.add(params, 'sunAngularSize', 0.0, 40.0).onChange(                                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    lighting_folder.add(params, 'sunLatitude', 0.0, 90.0).onChange(                                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    lighting_folder.add(params, 'sunLongitude', 0.0, 360.0).onChange(                                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
-    lighting_folder.addColor(params, 'sunColor').onChange(                                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
+    lighting_folder.add(params, 'sunPower', -4.0, 4.0).onChange(                                      v => { resetSamples(); });
+    lighting_folder.add(params, 'sunAngularSize', 0.0, 40.0).onChange(                                v => { resetSamples(); });
+    lighting_folder.add(params, 'sunLatitude', 0.0, 90.0).onChange(                                   v => { resetSamples(); });
+    lighting_folder.add(params, 'sunLongitude', 0.0, 360.0).onChange(                                 v => { resetSamples(); });
+    lighting_folder.addColor(params, 'sunColor').onChange(                                            v => { resetSamples(); });
 
     lighting_folder.close();
 
     const renderer_folder = gui.addFolder('Renderer');
-    renderer_folder.add( params, 'smooth_normals' ).onChange(                                         v => { rtQuad.material.needsUpdate = true; resetSamples(); });
-    renderer_folder.add( params, 'bounces', 1, 16, 1 ).onChange(                                      v => { rtMaterial.defines.BOUNCES = parseInt( v ); rtMaterial.needsUpdate = true; resetSamples(); });
-    renderer_folder.add( params, 'wireframe' ).onChange(                                              v => { rtQuad.material.needsUpdate = true; resetSamples(); });
-    renderer_folder.addColor(params, 'neutral_color').onChange(                                       v => { rtMaterial.needsUpdate = true; resetSamples(); });
-
+    renderer_folder.add( params, 'smooth_normals' ).onChange(                                         v => { resetSamples(); });
+    renderer_folder.add( params, 'wireframe' ).onChange(                                              v => { resetSamples(); });
+    renderer_folder.addColor(params, 'neutral_color').onChange(                                       v => { resetSamples(); });
+    renderer_folder.add( params, 'bounces', 1, 16, 1 ).onChange(                                      v => { rtMaterial.defines.BOUNCES = parseInt( v );
+                                                                                                             resetSamples();
+                                                                                                             trigger_recompile(); });
     renderer_folder.close();
 
     gui.open();
@@ -520,22 +582,45 @@ function setup(rtMaterial)
     resize();
 }
 
-
-function resetSamples()
+function trigger_recompile()
 {
-    samples = 0;
+    renderer.setRenderTarget( renderTarget );
+    let tmp_cam = new OrthographicCamera( - 1, 1, 1, - 1, 0, 1 );
+    startCompilationProgress();
+    let compile_promise = renderer.compileAsync(rtQuad._mesh, tmp_cam);
+    compile_promise.then((val) => {
+            console.log('shaders successfully compiled.');
+            finishCompilationProgress();
+        }).catch((err) => {
+            console.log('shader compilation error: ' + err);
+        }).finally(() => {});
+}
+
+function startCompilationProgress()
+{
+    let progress_overlay = document.getElementById('progress_overlay');
+    progress_overlay.style.display = 'block';
+    progress_overlay.style.opacity = 1;
+    progress_bar.set(0.0);
+    progress_bar.setText('shaders compiling...');
+    COMPILING = true;
+}
+
+function finishCompilationProgress()
+{
+    progress_bar.set(1.0);
+    progress_finished_timer = performance.now();
+    COMPILING = false;
 }
 
 function resize()
 {
 	camera.aspect = window.innerWidth / window.innerHeight;
 	camera.updateProjectionMatrix();
-
 	const w = window.innerWidth;
 	const h = window.innerHeight;
 	renderer.setSize( w, h );
 	renderer.setPixelRatio(1.0);
-
     renderTarget.setSize(w, h);
     resetSamples();
 }
@@ -543,6 +628,30 @@ function resize()
 function get_vector3(array3)
 {
     return new Vector3(array3[0], array3[1], array3[2]);
+}
+
+function resetSamples()
+{
+    if (rtMaterial)
+        rtMaterial.needsUpdate = true;
+    samples = 0;
+}
+
+function fadeOutProgressBar(time_ms)
+{
+    let progress_overlay = document.getElementById('progress_overlay');
+    var fadeOutEffect = setInterval(function () {
+        if (!progress_overlay.style.opacity) {
+            progress_overlay.style.opacity = 1;
+        }
+        if (progress_overlay.style.opacity > 0) {
+            progress_overlay.style.opacity -= 0.025;
+        } else {
+            progress_overlay.style.display = 'none';
+            progress_overlay.style.opacity = 0;
+            clearInterval(fadeOutEffect);
+        }
+    }, time_ms);
 }
 
 function render()
@@ -554,7 +663,6 @@ function render()
         return;
     }
 
-    console.log('render')
     stats.update();
     requestAnimationFrame( render );
 
@@ -564,8 +672,7 @@ function render()
     if (samples >= MAX_SAMPLES)
         return;
 
-    let enableRaytracing = true;
-    if (enableRaytracing)
+    if (!COMPILING && LOADED)
     {
 		camera.updateMatrixWorld();
 
@@ -662,10 +769,34 @@ function render()
     }
     else
     {
-		resetSamples();
+        resetSamples();
+        camera.updateProjectionMatrix();
 		camera.clearViewOffset();
         renderer.render( scene, camera );
     }
 
-    outputContainer.innerText = `samples: ${ samples }`;
+    document.getElementById('samples').innerText = `samples: ${ samples }`;
+
+    if (!COMPILING)
+    {
+        let progress_overlay = document.getElementById('progress_overlay');
+        let progress_bar_visible = progress_overlay.style.display != 'none';
+        if (progress_bar_visible)
+        {
+            let time_since_progress_finished_ms = performance.now() - progress_finished_timer;
+            if (time_since_progress_finished_ms > 400.0)
+                fadeOutProgressBar(400);
+        }
+    }
+
+    if (COMPILING)
+    {
+        if (progress_bar.value() < 0.01)
+            progress_bar.animate(1.0);
+        else if (progress_bar.value() > 0.99)
+        {
+            progress_bar.set(0.0);
+            progress_bar.animate(1.0);
+        }
+    }
 }

@@ -61,17 +61,6 @@ bool bvhIntersectFirstHitWithinDistance(
 	return found;
 }
 
-vec3 normalToTangent(in vec3 N)
-{
-    vec3 T;
-    if (abs(N.z) < abs(N.x))
-        T = vec3(N.z, 0.0, -N.x);
-    else
-        T = vec3(0.0, N.z, -N.y);
-    T = safe_normalize(T);
-    return T;
-}
-
 bool trace(in vec3 rayOrigin, in vec3 rayDir, in float maxDistance,
             out vec3 P, out vec3 Ns, out vec3 Ng, out vec3 Ts, out vec3 baryCoord, out int material)
 {
@@ -526,10 +515,10 @@ void main()
             // (see Schüßler, "Microfacet-based Normal Mapping for Robust Monte Carlo Path Tracing")
             if (openpbr_is_opaque() && dot(NsW, dW) > 0.0)
                 NsW = 2.0*NgW*dot(NgW, NsW) - NsW;
-            basis = makeBasis(NsW, baryCoord);
+            basis = makeBasis(NsW, TsW_next, baryCoord);
         }
         else
-            basis = makeBasis(NgW, baryCoord);
+            basis = makeBasis(NgW, TsW_next, baryCoord);
 
         vec3 winputW = -dW; // winputW, points *towards* the incident direction (parallel to photon)
         vec3 winputL = worldToLocal(winputW, basis);
