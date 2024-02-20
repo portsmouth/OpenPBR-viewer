@@ -34,10 +34,10 @@ float fresnel_refl_accounting_for_coat(float mu_i, float eta_ti)
     // to avoid TIR artifact:
     //  - mu_i is angle cosine of ray incident from exterior of surface,
     //  - mu_s is the resulting angle cosine of the ray refracted into the specular medium (from the coat), assuming smooth boundaries
-    float mu_s = sqrt(1.0 - (1.0 - sqr(mu_i))*sqr(ambient_ior/specular_ior)); // angle-cosine of re
-    // thus compute Fresnel refl. coeff of this ray reversed.
-    // That equals the reflection coefficient of the ray incident from the coat into the specular medium,
-    // by time-reversal (assuming no TIR, which is true in the smooth case)
+    float mu_s = sqrt(1.0 - (1.0 - sqr(mu_i))*sqr(ambient_ior/specular_ior)); // angle-cosine of ray refracted into dielectric
+    // Thus compute Fresnel refl. coeff of this ray reversed,
+    // which equals the reflection coefficient of the ray incident from the coat into the specular medium
+    // by time-reversal (assuming no TIR, which is true in the smooth case):
     float F = FresnelDielectricReflectance(mu_s, 1.0/eta_ti);
     return F;
 }
@@ -56,9 +56,6 @@ vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
 
     // Compute IOR ratio at interface:
     //  eta_ti_refl = (IOR in hemi. opposite to reflection) / (IOR in hemi. of reflection)
-    //float n_exterior = 1.0;
-    //float n_interior = specular_ior;
-    //float eta_ti_refl = external_reflection ? n_interior/n_exterior : n_exterior/n_interior;
     float eta_ie = specular_ior_ratio(specular_ior); // n_interior / n_exterior
     float eta_ti_refl = external_reflection ? eta_ie : 1.0/eta_ie;
     if (abs(eta_ti_refl - 1.0) < IOR_EPSILON) // degenerate case of index-matched interface, BRDF goes to zero
@@ -117,9 +114,6 @@ vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
 
     // Compute IOR ratio at interface:
     //  eta_ti_refl = (IOR in hemi. opposite to reflection) / (IOR in hemi. of reflection)
-    //float n_exterior = 1.0;
-    //float n_interior = specular_ior;
-    //float eta_ti_refl = external_reflection ? n_interior/n_exterior : n_exterior/n_interior;
     float eta_ie = specular_ior_ratio(specular_ior); // n_interior / n_exterior
     float eta_ti_refl = external_reflection ? eta_ie : 1.0/eta_ie;
     if (abs(eta_ti_refl - 1.0) < IOR_EPSILON) // degenerate case of index-matched interface, BRDF goes to zero
@@ -187,10 +181,6 @@ vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
 vec3 specular_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed)
 {
     // Estimate of the BRDF albedo, used to compute the discrete probability of selecting this lobe
-    //float n_exterior = 1.0;
-    //float n_interior = specular_ior;
-    //float eta = n_interior/n_exterior;
-    //if (abs(eta - 1.0) < IOR_EPSILON)
     float eta_ie = specular_ior_ratio(specular_ior); // n_interior / n_exterior
     if (abs(eta_ie - 1.0) < IOR_EPSILON)
     {

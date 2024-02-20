@@ -185,7 +185,6 @@ vec3 specular_btdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     // Estimate of the BTDF albedo, used to compute the discrete probability of selecting this lobe
     float eta_ie = specular_ior_dispersive(); // n_interior / n_exterior
     if (abs(eta_ie - 1.0) < IOR_EPSILON)
-    //if (abs(eta_ie - 1.0) < IOR_EPSILON)
     {
         // degenerate case of index-matched interface, BTDF is a delta-function
         vec3 tint = (transmission_depth == 0.0) ? transmission_color : vec3(1.0);
