@@ -63,6 +63,7 @@ uniform vec3  subsurface_color;
 uniform float subsurface_radius;
 uniform vec3  subsurface_radius_scale;
 uniform float subsurface_anisotropy;
+uniform int   subsurface_mode; // FOR TESTING
 
 uniform float coat_weight;
 uniform vec3  coat_color;
@@ -139,6 +140,12 @@ float minComponent(in vec3 v)
 {
     return min(v.x, min(v.y, v.z));
 }
+
+float avgComponent(in vec3 v)
+{
+    return (v.x + v.y + v.z)/3.0;
+}
+
 
 #define sqr(x) ((x)*(x))
 
@@ -449,6 +456,11 @@ float specular_ior_dispersive()
 /////////////////////////////////////////////////////////////////////////
 // Color utils
 /////////////////////////////////////////////////////////////////////////
+
+float luminance_srgb(in vec3 C)
+{
+    return 0.2126*C.r + 0.7152*C.g + 0.0722*C.b;
+}
 
 // Spectrum to XYZ approx function from Sloan: http://jcgt.org/published/0002/02/01/paper.pdf
 // Inputs:  Wavelength in nanometers
