@@ -15,6 +15,32 @@ void specular_ndf_roughnesses(out float alpha_x, out float alpha_y)
     alpha_y = max(min_alpha, alpha_y);
 }
 
+const float ambient_ior = 1.0;
+
+float specular_ior_ratio(float ior)
+{
+    float coat_ior_average = mix(ambient_ior, coat_ior, coat_weight);
+    float eta_s = ior / coat_ior_average;
+    float F_s = sqr((eta_s - 1.0)/(eta_s + 1.0));
+    float xi_s = clamp(specular_weight, 0.0, 1.0/max(F_s, DENOM_TOLERANCE));
+    float tmp = min(1.0, sign(eta_s - 1.0) * sqrt(xi_s * F_s));
+    float eta_s_prime = (1.0 + tmp) / max(1.0 - tmp, DENOM_TOLERANCE);
+    return eta_s_prime;
+}
+
+float fresnel_refl_accounting_for_coat(float mu_i, float eta_ti)
+{
+    // Compute correct Fresnel reflection factor at specular boundary, taking into account coat refraction,
+    // to avoid TIR artifact:
+    //  - mu_i is angle cosine of ray incident from exterior of surface,
+    //  - mu_s is the resulting angle cosine of the ray refracted into the specular medium (from the coat), assuming smooth boundaries
+    float mu_s = sqrt(1.0 - (1.0 - sqr(mu_i))*sqr(ambient_ior/specular_ior)); // angle-cosine of re
+    // thus compute Fresnel refl. coeff of this ray reversed.
+    // That equals the reflection coefficient of the ray incident from the coat into the specular medium,
+    // by time-reversal (assuming no TIR, which is true in the smooth case)
+    float F = FresnelDielectricReflectance(mu_s, 1.0/eta_ti);
+    return F;
+}
 
 vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
                             inout float pdf_woutputL)
@@ -30,14 +56,16 @@ vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
 
     // Compute IOR ratio at interface:
     //  eta_ti_refl = (IOR in hemi. opposite to reflection) / (IOR in hemi. of reflection)
-    float n_exterior = 1.0;
-    float n_interior = specular_ior;
-    float eta_ti_refl = external_reflection ? n_interior/n_exterior : n_exterior/n_interior;
+    //float n_exterior = 1.0;
+    //float n_interior = specular_ior;
+    //float eta_ti_refl = external_reflection ? n_interior/n_exterior : n_exterior/n_interior;
+    float eta_ie = specular_ior_ratio(specular_ior); // n_interior / n_exterior
+    float eta_ti_refl = external_reflection ? eta_ie : 1.0/eta_ie;
     if (abs(eta_ti_refl - 1.0) < IOR_EPSILON) // degenerate case of index-matched interface, BRDF goes to zero
         return vec3(0.0);
 
     // Non-physical Fresnel tint to apply
-    vec3 tint = specular_weight * specular_color;
+    vec3 tint = specular_color;
 
    // Compute the NDF roughnesses in the rotated frame
     float alpha_x, alpha_y;
@@ -67,7 +95,11 @@ vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
     float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
 
     // Compute Fresnel factor for the dielectric reflection
-    float F = FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl);
+    float F;
+    if (external_reflection)
+        F = fresnel_refl_accounting_for_coat(abs(dot(winputR, mR)), eta_ti_refl);
+    else
+        F = FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl);
 
     // Thus evaluate BRDF.
     float f = F * D * G2 / max(4.0 * abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
@@ -85,14 +117,16 @@ vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
 
     // Compute IOR ratio at interface:
     //  eta_ti_refl = (IOR in hemi. opposite to reflection) / (IOR in hemi. of reflection)
-    float n_exterior = 1.0;
-    float n_interior = specular_ior;
-    float eta_ti_refl = external_reflection ? n_interior/n_exterior : n_exterior/n_interior;
+    //float n_exterior = 1.0;
+    //float n_interior = specular_ior;
+    //float eta_ti_refl = external_reflection ? n_interior/n_exterior : n_exterior/n_interior;
+    float eta_ie = specular_ior_ratio(specular_ior); // n_interior / n_exterior
+    float eta_ti_refl = external_reflection ? eta_ie : 1.0/eta_ie;
     if (abs(eta_ti_refl - 1.0) < IOR_EPSILON) // degenerate case of index-matched interface, BRDF goes to zero
         return vec3(0.0);
 
     // Non-physical Fresnel tint to apply
-    vec3 tint = specular_weight * specular_color;
+    vec3 tint = specular_color;
 
     // Compute the NDF roughnesses in the rotated frame
     float alpha_x, alpha_y;
@@ -138,7 +172,11 @@ vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
 
     // Compute Fresnel factor for the dielectric reflection
-    float F = FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl);
+    float F;
+    if (external_reflection)
+        F = fresnel_refl_accounting_for_coat(abs(dot(winputR, mR)), eta_ti_refl);
+    else
+        F = FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl);
 
      // Thus evaluate BRDF.
     float f = F * D * G2 / max(4.0 * abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
@@ -149,10 +187,12 @@ vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
 vec3 specular_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed)
 {
     // Estimate of the BRDF albedo, used to compute the discrete probability of selecting this lobe
-    float n_exterior = 1.0;
-    float n_interior = specular_ior;
-    float eta = n_interior/n_exterior;
-    if (abs(eta - 1.0) < IOR_EPSILON)
+    //float n_exterior = 1.0;
+    //float n_interior = specular_ior;
+    //float eta = n_interior/n_exterior;
+    //if (abs(eta - 1.0) < IOR_EPSILON)
+    float eta_ie = specular_ior_ratio(specular_ior); // n_interior / n_exterior
+    if (abs(eta_ie - 1.0) < IOR_EPSILON)
     {
         // degenerate case of index-matched interface, BRDF goes to zero
         return vec3(0.0);
