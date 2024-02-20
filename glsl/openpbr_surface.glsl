@@ -218,32 +218,43 @@ void fill_subsurface_medium(inout Volume internal_medium)
         case 1: // 'OpenPBR (luminance)'
         {
             s2 = s2_hyperion;
-            vec3 mu_t = 1.0 / max(mfp_epsilon, vec3(luminance_srgb(S_hyperion) * r));
+            float S = luminance_srgb(S_hyperion);
+            vec3 mu_t = 1.0 / max(mfp_epsilon, S * r);
             internal_medium.extinction = mu_t * (1.0 - g*s2) / (1.0 - g);
             break;
         }
         case 2: // 'OpenPBR (average)'
         {
             s2 = s2_hyperion;
-            vec3 mu_t = 1.0 / max(mfp_epsilon, vec3(avgComponent(S_hyperion) * r));
+            float S = avgComponent(S_hyperion);
+            vec3 mu_t = 1.0 / max(mfp_epsilon, S * r);
             internal_medium.extinction = mu_t * (1.0 - g*s2) / (1.0 - g);
             break;
         }
         case 3: // 'OpenPBR (max value)'
         {
             s2 = s2_hyperion;
-            vec3 mu_t = 1.0 / max(mfp_epsilon, vec3(maxComponent(S_hyperion) * r));
+            float S = maxComponent(S_hyperion);
+            vec3 mu_t = 1.0 / max(mfp_epsilon, S * r);
             internal_medium.extinction = mu_t * (1.0 - g*s2) / (1.0 - g);
             break;
         }
-        case 4: // 'SPI / Arnold v1'
+        case 4: // 'OpenPBR (weighted average)'
+        {
+            s2 = s2_hyperion;
+            float S = avgComponent(S_hyperion * A) / avgComponent(A);
+            vec3 mu_t = 1.0 / max(mfp_epsilon, S * r);
+            internal_medium.extinction = mu_t * (1.0 - g*s2) / (1.0 - g);
+            break;
+        }
+        case 5: // 'SPI / Arnold v1'
         {
             s2 = s2_vandehulst;
             vec3 mu_t = 1.0 / max(mfp_epsilon, r);
             internal_medium.extinction = mu_t;
             break;
         }
-        case 5: // 'Arnold_v2'
+        case 6: // 'Arnold_v2'
         {
             s2 = s2_hyperion;
             internal_medium.extinction = 1.0 / max(vec3(3.0*RAY_OFFSET), r);
