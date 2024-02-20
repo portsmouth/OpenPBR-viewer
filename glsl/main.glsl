@@ -76,6 +76,9 @@ uniform float fuzz_weight;
 uniform vec3  fuzz_color;
 uniform float fuzz_roughness;
 
+uniform float emission_luminance;
+uniform vec3  emission_color;
+
 uniform float geometry_opacity;
 uniform bool geometry_thin_walled;
 

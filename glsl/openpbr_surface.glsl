@@ -3,7 +3,6 @@
 // OpenPBR BSDF
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-
 const int ID_FUZZ_BRDF = 0;
 const int ID_COAT_BRDF = 1;
 const int ID_META_BRDF = 2;
@@ -36,6 +35,7 @@ struct LobePDFs
     float m[7];
 };
 
+// Precomputed lobe weights, albedos, and discrete probabilities, per vertex
 LobeWeights lobe_weights;
 LobeAlbedos lobe_albedos;
 LobeProbs   lobe_probs;
@@ -94,7 +94,6 @@ void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     weights.m[ID_DIFF_BRDF] = w_opaque_dielectric_base * (1.0 - subsurface_weight) * (vec3(1.0) - albedos.m[ID_SPEC_BRDF]);
     albedos.m[ID_DIFF_BRDF] = (maxComponent(weights.m[ID_DIFF_BRDF]) > 0.0) ? diffuse_brdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
 }
-
 
 void openpbr_lobe_probabilities(in LobeWeights weights, in LobeAlbedos albedos,
                                 inout LobeProbs probs)
@@ -177,7 +176,6 @@ vec3 openpbr_bsdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 
 // OpenPBR BSDF: sampling
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-
 void fill_transmission_medium(inout Volume internal_medium)
 {
     // Set up the volumetric medium according to the "Translucent Base" section of the OpenPBR spec
@@ -259,7 +257,7 @@ void fill_subsurface_medium(inout Volume internal_medium)
 vec3 openpbr_bsdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
                          out vec3 woutputL, out float pdf_woutputL, out Volume internal_medium)
 {
-    // Sample a lobe according to these probabilities.
+    // Sample a lobe according to the precomptuted lobe_probs.
     // Also compute PDF of all other lobes in the sampled direction.
     float X = rand(rndSeed);
     float CDF = 0.0;

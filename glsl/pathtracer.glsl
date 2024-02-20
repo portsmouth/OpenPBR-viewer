@@ -289,6 +289,11 @@ vec3 LiDirect(in vec3 pW, in Basis basis,
     return visibility * Li;
 }
 
+vec3 evaluateEdf(in vec3 pW, in Basis basis, in vec3 winputL)
+{
+    return emission_color * emission_luminance;
+}
+
 
 /////////////////////////////////////////////////////////////////////////
 // pathtracer
@@ -507,13 +512,12 @@ void main()
 
         // Construct local shading frame
         Basis basis;
-
         if (smooth_normals)
         {
             // If the surface is opaque, but the incident ray lies below the hemisphere of the normal,
             // which can occur due to shading normals, apply the "Flipping hack" to prevent artifacts
             // (see Schüßler, "Microfacet-based Normal Mapping for Robust Monte Carlo Path Tracing")
-            if (openpbr_is_opaque() && dot(NsW, dW) > 0.0)
+            if (material != MATERIAL_OPENPBR || (openpbr_is_opaque() && dot(NsW, dW) > 0.0))
                 NsW = 2.0*NgW*dot(NgW, NsW) - NsW;
             basis = makeBasis(NsW, TsW_next, baryCoord);
         }
@@ -540,7 +544,8 @@ void main()
         }
 
         // Add emission from the surface point, if present
-        //L += throughput * evaluateEdf(pW, basis, winputL);
+        if (material == MATERIAL_OPENPBR)
+            L += throughput * evaluateEdf(pW, basis, winputL);
 
         // Prepare for tracing the direct lighting and continuation rays
         pW += NgW * sign(dot(dW, NgW)) * RAY_OFFSET; // perturb vertex into geometric half-space of scattered ray
