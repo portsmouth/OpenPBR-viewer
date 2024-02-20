@@ -165,12 +165,13 @@ var LOADED;
 var COMPILING;
 
 var subsurface_mode_names = {
-    'OpenPBR (orig, 3-float)': 0,
-    'OpenPBR (luminace)':      1,
-    'OpenPBR (average)':       2,
-    'OpenPBR (max value)':     3,
-    'SPI / Arnold v1':         4,
-    'Arnold v2':               5
+    'OpenPBR (orig, 3-float)':    0,
+    'OpenPBR (luminace)':         1,
+    'OpenPBR (average)':          2,
+    'OpenPBR (max value)':        3,
+    'OpenPBR (weighted average)': 4,
+    'SPI / Arnold v1':            5,
+    'Arnold v2':                  6
 }
 
 
