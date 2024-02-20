@@ -607,7 +607,7 @@ function post_load_setup()
     renderer_folder.add( params, 'bounces', 1, 16, 1 ).onChange(                                      v => { rtMaterial.defines.BOUNCES = parseInt( v );
                                                                                                              resetSamples();
                                                                                                              trigger_recompile(); });
-    renderer_folder.add( params, 'max_volume_steps', 1, 16, 1 ).onChange(                             v => { rtMaterial.defines.MAX_VOLUME_STEPS = parseInt( v );
+    renderer_folder.add( params, 'max_volume_steps', 1, 256, 1 ).onChange(                             v => { rtMaterial.defines.MAX_VOLUME_STEPS = parseInt( v );
                                                                                                              resetSamples();
                                                                                                              trigger_recompile(); });
     renderer_folder.close();
