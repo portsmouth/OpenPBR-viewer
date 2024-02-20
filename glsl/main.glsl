@@ -71,6 +71,7 @@ uniform float coat_roughness;
 uniform float coat_anisotropy;
 uniform float coat_rotation;
 uniform float coat_ior;
+uniform float coat_darkening;
 
 uniform float fuzz_weight;
 uniform vec3  fuzz_color;
@@ -348,6 +349,17 @@ float FresnelDielectricReflectance(in float cosi, in float eta_ti)
     return 1.0; // total internal reflection
 }
 
+float E_F(float eta)
+{
+    return log((10893.0*eta - 1438.2)/(-774.4*sqr(eta) + 10212.0*eta + 1.0));
+}
+
+float average_dielectric_fresnel(float eta)
+{
+    if      (eta > 1.0) return E_F(eta);
+    else if (eta < 1.0) return 1.0 - sqr(eta)*(1.0 - E_F(1.0/eta));
+    else return 0.0;
+}
 
 /////////////////////////////////////////////////////////////////////////
 // GGX Microfacet formulae
