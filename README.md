@@ -1,9 +1,7 @@
 # OpenPBR-glsl-example
 An example implementation of OpenPBR in a webGL pathtracer
 
-Run the live app at:
-
-    [https://portsmouth.github.io/OpenPBR-glsl-example/]
+Run the live app [here](https://portsmouth.github.io/OpenPBR-glsl-example/).
 
 To build locally, install [npm](https://www.npmjs.com/) and run:
 
