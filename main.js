@@ -128,6 +128,7 @@ const params =
     subsurface_radius:                   0.2,
     subsurface_radius_scale:             [1.0, 0.5, 0.25],
     subsurface_anisotropy:               0.0,
+    subsurface_mode:                     0, // FOR TESTING
 
     coat_weight:                         0.0,
     coat_color:                          [1.0, 1.0, 1.0],
@@ -159,6 +160,15 @@ var progress_finished_timer;
 
 var LOADED;
 var COMPILING;
+
+var subsurface_mode_names = {
+    'OpenPBR (orig, 3-float)': 0,
+    'OpenPBR (luminace)':      1,
+    'OpenPBR (average)':       2,
+    'OpenPBR (max value)':     3,
+    'SPI / Arnold v1':         4,
+    'Arnold v2':               5
+}
 
 
 init();
@@ -338,6 +348,7 @@ function init()
             subsurface_radius:                   { value: params.subsurface_radius },
             subsurface_radius_scale:             { value: array_to_vector3(params.subsurface_radius_scale) },
             subsurface_anisotropy:               { value: params.subsurface_anisotropy },
+            subsurface_mode:                     { value: params.subsurface_mode },
 
             coat_weight:                         { value: params.coat_weight },
             coat_color:                          { value: array_to_vector3(params.coat_color) },
@@ -530,6 +541,11 @@ function post_load_setup()
     subsurface_folder.add(params,      'subsurface_radius', 0.0, 1.0).onChange(                       v => { resetSamples(); });
     subsurface_folder.addColor(params, 'subsurface_radius_scale').onChange(                           v => { resetSamples(); });
     subsurface_folder.add(params,      'subsurface_anisotropy', -1.0, 1.0).onChange(                  v => { resetSamples(); });
+    subsurface_folder.add(params,      'subsurface_mode', subsurface_mode_names).onChange(
+                                                            v => {
+                                                                    resetSamples();
+                                                                    });
+
     subsurface_folder.close();
 
     const coat_folder = material_folder.addFolder('Coat');
@@ -726,6 +742,7 @@ function render()
         uniforms.subsurface_radius.value                      = params.subsurface_radius;
         uniforms.subsurface_radius_scale.value.copy(get_vector3(params.subsurface_radius_scale));
         uniforms.subsurface_anisotropy.value                  = params.subsurface_anisotropy;
+        uniforms.subsurface_mode.value                        = params.subsurface_mode;
 
         uniforms.coat_weight.value                            = params.coat_weight;
         uniforms.coat_color.value.copy(get_vector3(             params.coat_color));
