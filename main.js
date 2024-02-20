@@ -141,6 +141,9 @@ const params =
     fuzz_color:                          [1.0, 1.0, 1.0],
     fuzz_roughness:                      0.5,
 
+    emission_luminance:                  0.0,
+    emission_color:                      [1.0, 1.0, 1.0],
+
     geometry_opacity:                    1.0,
     geometry_thin_walled:                false
 
@@ -361,6 +364,9 @@ function init()
             fuzz_color:                          { value: array_to_vector3(params.fuzz_color) },
             fuzz_roughness:                      { value: params.fuzz_roughness },
 
+            emission_luminance:                  { value: params.emission_luminance },
+            emission_color:                      { value: array_to_vector3(params.emission_color) },
+
             geometry_opacity:                    { value: params.geometry_opacity },
             geometry_thin_walled:                { value: params.geometry_thin_walled }
 
@@ -544,8 +550,7 @@ function post_load_setup()
     subsurface_folder.add(params,      'subsurface_mode', subsurface_mode_names).onChange(
                                                             v => {
                                                                     resetSamples();
-                                                                    });
-
+                                                                 });
     subsurface_folder.close();
 
     const coat_folder = material_folder.addFolder('Coat');
@@ -555,12 +560,18 @@ function post_load_setup()
     coat_folder.add(params,          'coat_ior', 1.0, 3.0).onChange(                                  v => { resetSamples(); });
     coat_folder.add(params,          'coat_anisotropy', 0.0, 1.0).onChange(                           v => { resetSamples(); });
     coat_folder.add(params,          'coat_rotation', 0.0, 1.0).onChange(                             v => { resetSamples(); });
+    coat_folder.close();
 
     const fuzz_folder = material_folder.addFolder('Fuzz');
     fuzz_folder.add(params,          'fuzz_weight', 0.0, 1.0).onChange(                               v => { resetSamples(); });
     fuzz_folder.addColor(params,     'fuzz_color').onChange(                                          v => { resetSamples(); });
     fuzz_folder.add(params,          'fuzz_roughness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
     fuzz_folder.close();
+
+    const emission_folder = material_folder.addFolder('Emission');
+    emission_folder.add(params,          'emission_luminance', 0.0, 10.0).onChange(                   v => { resetSamples(); });
+    emission_folder.addColor(params,     'emission_color').onChange(                                  v => { resetSamples(); });
+    emission_folder.close();
 
     const geometry_folder = material_folder.addFolder('Geometry');
     geometry_folder.add(params,      'geometry_opacity', 0.0, 1.0).onChange(                          v => { resetSamples(); });
@@ -576,7 +587,6 @@ function post_load_setup()
     lighting_folder.add(params, 'sunLatitude', 0.0, 90.0).onChange(                                   v => { resetSamples(); });
     lighting_folder.add(params, 'sunLongitude', 0.0, 360.0).onChange(                                 v => { resetSamples(); });
     lighting_folder.addColor(params, 'sunColor').onChange(                                            v => { resetSamples(); });
-
     lighting_folder.close();
 
     const renderer_folder = gui.addFolder('Renderer');
@@ -755,6 +765,9 @@ function render()
         uniforms.fuzz_color.value.copy(get_vector3(             params.fuzz_color));
         uniforms.fuzz_roughness.value                         = params.fuzz_roughness;
 
+        uniforms.emission_luminance.value                     = params.emission_luminance;
+        uniforms.emission_color.value.copy(get_vector3(         params.emission_color));
+
         uniforms.geometry_opacity.value                       = params.geometry_opacity;
         uniforms.geometry_thin_walled.value                   = params.geometry_thin_walled;
 
@@ -779,7 +792,7 @@ function render()
 
         // render to screen
 		renderer.setRenderTarget( null );
-		finalQuad.render( renderer );
+		finalQuad.render( renderer ); // TODO: tonemapping!
 
 		renderer.autoClear = true;
         samples++;
