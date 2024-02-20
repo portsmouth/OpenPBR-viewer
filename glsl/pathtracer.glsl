@@ -299,7 +299,6 @@ vec3 evaluateEdf(in vec3 pW, in Basis basis, in vec3 winputL)
 // pathtracer
 /////////////////////////////////////////////////////////////////////////
 
-#define MAX_VOLUME_STEPS 8
 #define MIN_VOLUME_STEPS_BEFORE_RR 3
 
 int sample_channel(in vec3 albedo, in vec3 throughput, inout uint rndSeed, inout vec3 channel_probs)

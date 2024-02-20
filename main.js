@@ -84,6 +84,7 @@ const params =
 
 	smooth_normals:                     true,
     bounces:                            6,
+    max_volume_steps:                   8,
     wireframe:                          true,
     neutral_color:                      [0.5, 0.5, 0.5],
 
@@ -143,6 +144,9 @@ const params =
 
     emission_luminance:                  0.0,
     emission_color:                      [1.0, 1.0, 1.0],
+
+    thin_film_thickness:                 0.0,
+    thin_film_ior:                       1.5,
 
     geometry_opacity:                    1.0,
     geometry_thin_walled:                false
@@ -278,7 +282,8 @@ function init()
 
         defines:
         {
-            BOUNCES: params.bounces,
+            BOUNCES:          params.bounces,
+            MAX_VOLUME_STEPS: params.max_volume_steps
         },
 
         uniforms:
@@ -574,6 +579,11 @@ function post_load_setup()
     emission_folder.addColor(params,     'emission_color').onChange(                                  v => { resetSamples(); });
     emission_folder.close();
 
+    const thin_film_folder = material_folder.addFolder('Thin Film');
+    thin_film_folder.add(params,          'thin_film_thickness', 0.0, 2000.0).onChange(               v => { resetSamples(); });
+    thin_film_folder.add(params,          'thin_film_ior', 1.0, 3.0).onChange(                        v => { resetSamples(); });
+    thin_film_folder.close();
+
     const geometry_folder = material_folder.addFolder('Geometry');
     geometry_folder.add(params,      'geometry_opacity', 0.0, 1.0).onChange(                          v => { resetSamples(); });
     geometry_folder.add(params,      'geometry_thin_walled').onChange(                                v => { resetSamples(); });
@@ -595,6 +605,9 @@ function post_load_setup()
     renderer_folder.add( params, 'wireframe' ).onChange(                                              v => { resetSamples(); });
     renderer_folder.addColor(params, 'neutral_color').onChange(                                       v => { resetSamples(); });
     renderer_folder.add( params, 'bounces', 1, 16, 1 ).onChange(                                      v => { rtMaterial.defines.BOUNCES = parseInt( v );
+                                                                                                             resetSamples();
+                                                                                                             trigger_recompile(); });
+    renderer_folder.add( params, 'max_volume_steps', 1, 16, 1 ).onChange(                             v => { rtMaterial.defines.MAX_VOLUME_STEPS = parseInt( v );
                                                                                                              resetSamples();
                                                                                                              trigger_recompile(); });
     renderer_folder.close();
