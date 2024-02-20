@@ -137,6 +137,7 @@ const params =
     coat_anisotropy:                     0.0,
     coat_rotation:                       0.0,
     coat_ior:                            1.6,
+    coat_darkening:                      1.0,
 
     fuzz_weight:                         0.0,
     fuzz_color:                          [1.0, 1.0, 1.0],
@@ -365,6 +366,7 @@ function init()
             coat_anisotropy:                     { value: params.coat_anisotropy },
             coat_rotation:                       { value: params.coat_rotation },
             coat_ior:                            { value: params.coat_ior  },
+            coat_darkening:                      { value: params.coat_darkening  },
 
             fuzz_weight:                         { value: params.fuzz_weight },
             fuzz_color:                          { value: array_to_vector3(params.fuzz_color) },
@@ -566,6 +568,7 @@ function post_load_setup()
     coat_folder.add(params,          'coat_ior', 1.0, 3.0).onChange(                                  v => { resetSamples(); });
     coat_folder.add(params,          'coat_anisotropy', 0.0, 1.0).onChange(                           v => { resetSamples(); });
     coat_folder.add(params,          'coat_rotation', 0.0, 1.0).onChange(                             v => { resetSamples(); });
+    coat_folder.add(params,          'coat_darkening', 0.0, 1.0).onChange(                            v => { resetSamples(); });
     coat_folder.close();
 
     const fuzz_folder = material_folder.addFolder('Fuzz');
@@ -774,6 +777,7 @@ function render()
         uniforms.coat_anisotropy.value                        = params.coat_anisotropy;
         uniforms.coat_rotation.value                          = params.coat_rotation;
         uniforms.coat_ior.value                               = params.coat_ior;
+        uniforms.coat_darkening .value                        = params.coat_darkening;
 
         uniforms.fuzz_weight.value                            = params.fuzz_weight;
         uniforms.fuzz_color.value.copy(get_vector3(             params.fuzz_color));

@@ -50,49 +50,85 @@ LobeProbs   lobe_probs;
 void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
                           inout LobeWeights weights, inout LobeAlbedos albedos)
 {
-    // Surface //////////////////////
+    float F = fuzz_weight;
+    float C = coat_weight;
+    float M = base_metalness;
+    float T = transmission_weight;
+    float S = subsurface_weight;
+
+    ///////////////////////////// Compute albedos /////////////////////////////
+
+    //bool fuzzed             = (fuzz_weight > 0.0);
+    bool coated             = (C > 0.0);
+    bool metallic           = (M > 0.0);
+    bool fully_metallic     = (M == 1.0);
+    bool transmissive       = (T > 0.0);
+    bool fully_transmissive = (T == 1.0);
+    bool subsurfaced        = (S > 0.0);
+    bool fully_subsurfaced  = (S == 1.0);
+
+    //albedos.m[ID_FUZZ_BRDF] = fuzzed                                                     ? fuzz_brdf_albedo(pW, basis, winputL, rndSeed)     : vec3(0.0);
+    albedos.m[ID_COAT_BRDF] = coated                                                       ? coat_brdf_albedo(pW, basis, winputL, rndSeed)     : vec3(0.0);
+    albedos.m[ID_META_BRDF] = metallic                                                     ? metal_brdf_albedo(pW, basis, winputL, rndSeed)    : vec3(0.0);
+    albedos.m[ID_SPEC_BRDF] = !fully_metallic                                              ? specular_brdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
+    albedos.m[ID_SPEC_BTDF] = !fully_metallic && transmissive                              ? specular_btdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
+    albedos.m[ID_SSSC_BTDF] = !fully_metallic && !fully_transmissive && subsurfaced        ? specular_btdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
+    albedos.m[ID_DIFF_BRDF] = !fully_metallic && !fully_transmissive && !fully_subsurfaced ? diffuse_brdf_albedo(pW, basis, winputL, rndSeed)  : vec3(0.0);
+
+    ///////////////////////////// Construct lobe weights /////////////////////////////
 
     // Fuzz BRDF
-    weights.m[ID_FUZZ_BRDF] = vec3(0.0); // fuzz_weight;
-    if (maxComponent(weights.m[ID_FUZZ_BRDF]) > 0.0) albedos.m[ID_FUZZ_BRDF] = vec3(0.0); //fuzz_brdf_albedo(pW, basis, winputL, rndSeed);
-    else                                             albedos.m[ID_FUZZ_BRDF] = vec3(0.0);
+    weights.m[ID_FUZZ_BRDF] = vec3(0.0); // F;
 
     // Coated base //////////////////////
-    vec3 w_coated_base = vec3(1.0); //mix(vec3(1.0), vec3(1.0) - albedos.m[ID_FUZZ_BRDF], fuzz_weight);
+    vec3 w_coated_base = vec3(1.0); //mix(vec3(1.0), vec3(1.0) - albedos.m[ID_FUZZ_BRDF], F);
 
     // Coat BRDF
-    weights.m[ID_COAT_BRDF] = w_coated_base * coat_weight;
-    albedos.m[ID_COAT_BRDF] = (maxComponent(weights.m[ID_COAT_BRDF]) > 0.0) ? coat_brdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
+    weights.m[ID_COAT_BRDF] = w_coated_base * C;
 
     // Base substrate //////////////////////
-    vec3 w_base_substrate = w_coated_base * mix(vec3(1.0), coat_color*(vec3(1.0) - albedos.m[ID_COAT_BRDF]), coat_weight);
+
+    // Compute base darkening factor due to presence of coat:
+    vec3 base_darkening = vec3(1.0);
+    if (coated && coat_darkening > 0.0)
+    {
+        float Kr = 1.0 - (1.0 - average_dielectric_fresnel(coat_ior))/sqr(coat_ior);
+        float Ks = FresnelDielectricReflectance(abs(winputL.z), coat_ior);
+        float Fr = clamp(specular_weight * fresnel_refl_normal_incidence(), 0.0, 1.0);
+        float rd = mix(1.0, specular_roughness, Fr); // estimate of roughness of dielectric base
+        float rm = specular_roughness;               // estimate of roughness of metallic base
+        float rb = mix(rd, rm, M);  // thus estimated roughness of entire base
+        float K = mix(Ks, Kr, rb);  // thus estimated internal diffuse reflection coeff.
+        vec3 E_dielectric_base = mix(mix(albedos.m[ID_DIFF_BRDF], albedos.m[ID_SSSC_BTDF], S),
+                                         albedos.m[ID_SPEC_BTDF], T);     // dielectric base albedo
+        vec3 E_base = mix(E_dielectric_base, albedos.m[ID_META_BRDF], M); // entire base albedo
+        vec3 Delta = (1.0 - K) / vec3(1.0 - E_base*K);                    // full darkening factor
+        base_darkening = mix(vec3(1.0), Delta, C * coat_darkening);       // modulated darkening factor
+    }
+    vec3 w_base_substrate = w_coated_base * mix(vec3(1.0), base_darkening * coat_color * (vec3(1.0) - albedos.m[ID_COAT_BRDF]), C);
 
     // Metal BRDF
-    weights.m[ID_META_BRDF] = w_base_substrate * base_metalness;
-    albedos.m[ID_META_BRDF] = (maxComponent(weights.m[ID_META_BRDF]) > 0.0) ? metal_brdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
+    weights.m[ID_META_BRDF] = w_base_substrate * M;
 
     // Dielectric base //////////////////////
-    vec3 w_dielectric_base = w_base_substrate * vec3(max(0.0, 1.0 - base_metalness));
+    vec3 w_dielectric_base = w_base_substrate * vec3(max(0.0, 1.0 - M));
 
     // Specular BRDF
     weights.m[ID_SPEC_BRDF] = w_dielectric_base;
-    albedos.m[ID_SPEC_BRDF] = (maxComponent(weights.m[ID_SPEC_BRDF]) > 0.0) ? specular_brdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
 
     // Specular BTDF
-    weights.m[ID_SPEC_BTDF] = w_dielectric_base * transmission_weight;
-    albedos.m[ID_SPEC_BTDF] = (maxComponent(weights.m[ID_SPEC_BTDF]) > 0.0) ? specular_btdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
+    weights.m[ID_SPEC_BTDF] = w_dielectric_base * T;
 
     // Opaque dielectric base //////////////////////
-    vec3 w_opaque_dielectric_base = w_dielectric_base * (1.0 - transmission_weight);
+    vec3 w_opaque_dielectric_base = w_dielectric_base * (1.0 - T);
 
     // Subsurface BSSRDF
     //  - the subsurface lobe is identical to the specular BTDF, apart from the associated internal volumetric medium
-    weights.m[ID_SSSC_BTDF] = w_opaque_dielectric_base * subsurface_weight;
-    albedos.m[ID_SSSC_BTDF] = (maxComponent(weights.m[ID_SSSC_BTDF]) > 0.0) ? specular_btdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
+    weights.m[ID_SSSC_BTDF] = w_opaque_dielectric_base * S;
 
     // Diffuse BRDF
-    weights.m[ID_DIFF_BRDF] = w_opaque_dielectric_base * (1.0 - subsurface_weight) * (vec3(1.0) - albedos.m[ID_SPEC_BRDF]);
-    albedos.m[ID_DIFF_BRDF] = (maxComponent(weights.m[ID_DIFF_BRDF]) > 0.0) ? diffuse_brdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
+    weights.m[ID_DIFF_BRDF] = w_opaque_dielectric_base * (1.0 - S) * (vec3(1.0) - albedos.m[ID_SPEC_BRDF]);
+
 }
 
 void openpbr_lobe_probabilities(in LobeWeights weights, in LobeAlbedos albedos,
