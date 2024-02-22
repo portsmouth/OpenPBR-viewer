@@ -304,7 +304,7 @@ void fill_subsurface_medium(inout Volume internal_medium)
 vec3 openpbr_bsdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
                          out vec3 woutputL, out float pdf_woutputL, out Volume internal_medium)
 {
-    // Sample a lobe according to the precomptuted lobe_probs.
+    // Sample a lobe according to the precomputed lobe_probs.
     // Also compute PDF of all other lobes in the sampled direction.
     float X = rand(rndSeed);
     float CDF = 0.0;
