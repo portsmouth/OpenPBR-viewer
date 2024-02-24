@@ -516,7 +516,7 @@ void main()
             // If the surface is opaque, but the incident ray lies below the hemisphere of the normal,
             // which can occur due to shading normals, apply the "Flipping hack" to prevent artifacts
             // (see Schüßler, "Microfacet-based Normal Mapping for Robust Monte Carlo Path Tracing")
-            if (material != MATERIAL_OPENPBR || (openpbr_is_opaque() && dot(NsW, dW) > 0.0))
+            if (material == MATERIAL_OPENPBR && openpbr_is_opaque() && dot(NsW, dW) > 0.0)
                 NsW = 2.0*NgW*dot(NgW, NsW) - NsW;
             basis = makeBasis(NsW, TsW_next, baryCoord);
         }
