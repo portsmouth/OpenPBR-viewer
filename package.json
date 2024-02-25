@@ -13,7 +13,7 @@
   },
   "name": "openpbr_viewer",
   "private": true,
-  "homepage": "https://portsmouth.github.io/OpenPBR-glsl-example/",
+  "homepage": "https://portsmouth.github.io/OpenPBR-viewer/",
   "version": "1.0.0",
   "description": "OpenPBR example GLSL viewer",
   "main": "main.js",
