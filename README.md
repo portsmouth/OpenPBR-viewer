@@ -1,4 +1,4 @@
-# OpenPBR-glsl-example
+# OpenPBR-viewer
 An example implementation of the [OpenPBR Surface](https://github.com/AcademySoftwareFoundation/OpenPBR) shading model in a simple WebGL  pathtracer. This is intended as an example of an "as simple as possible" implementation from scratch. Note, it is still a work-in-progress, so still missing some features.
 
 Run the live app [here](https://portsmouth.github.io/OpenPBR-glsl-example/).
