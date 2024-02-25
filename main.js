@@ -476,6 +476,7 @@ function init()
 
 function reset_camera()
 {
+    // Set camera default orientation according to the Standard Shader Ball USD asset description.
     let camera_fov = 23.6701655;
     let camera_near = 0.01;
     let camera_far = 1000.0;
@@ -483,12 +484,11 @@ function reset_camera()
 
     orbitControls = new OrbitControls( camera, renderer.domElement );
     orbitControls.addEventListener( 'change', () => { resetSamples(); } );
-
     let matrixWorld = new Matrix4();
-    matrixWorld.set(     0.9396926207859084,                  0, -0.3420201433256687, 0,
-                        -0.2203032561704394, 0.7649214009184319, -0.6052782217606094, 0,
-                        0.26161852717499334, 0.6441236297613865,  0.7187909959242699, 0,
-                          6.531538924716362,               19.5,  17.948521838355774, 1 );
+    matrixWorld.set( 0.9396926207859084,                  0, -0.3420201433256687, 0,
+                    -0.2203032561704394, 0.7649214009184319, -0.6052782217606094, 0,
+                    0.26161852717499334, 0.6441236297613865,  0.7187909959242699, 0,
+                      6.531538924716362,               19.5,  17.948521838355774, 1 );
     matrixWorld.transpose();
     camera.matrixAutoUpdate = false;
     camera.applyMatrix4(matrixWorld);
