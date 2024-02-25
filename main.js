@@ -975,6 +975,7 @@ document.onkeydown = function (event)
                     link.href = URL.createObjectURL(blob);
                     var event = new MouseEvent('click');
                     link.dispatchEvent(event);
+                    requestAnimationFrame( render );
                 },'image/png', 1);
             break;
         }
