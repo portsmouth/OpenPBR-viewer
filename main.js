@@ -151,7 +151,9 @@ const params =
     thin_film_ior:                       1.5,
 
     geometry_opacity:                    1.0,
-    geometry_thin_walled:                false
+    geometry_thin_walled:                false,
+
+    reset_camera:                        function() { reset_camera(); }
 
 };
 
@@ -628,6 +630,7 @@ function post_load_setup()
                                                                                                              trigger_recompile(); });
     renderer_folder.close();
 
+    gui.add( params, 'reset_camera' );
     gui.open();
 
     //////////////////////////////////////////////////////////
