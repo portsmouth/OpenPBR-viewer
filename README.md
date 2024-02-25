@@ -13,7 +13,7 @@ To build locally, install [npm](https://www.npmjs.com/) and run:
 
 And navigate in a browser to http://localhost:8080/OpenPBR-viewer.
 
-<img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/metal.png" width="49%"> <img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/absorption.png" width="49%">
+<img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/metal2.png" width="49%"> <img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/absorption.png" width="49%">
 
 <img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/dispersion2.png" width="49%"> <img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/bubbles.png" width="49%">
 
