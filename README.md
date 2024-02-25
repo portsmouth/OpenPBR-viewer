@@ -11,10 +11,10 @@ To build locally, install [npm](https://www.npmjs.com/) and run:
 
 And navigate in a browser to http://localhost:8080/OpenPBR-viewer.
 
-<img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/metal.png" width="400"> <img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/absorption.png" width="400">
+<img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/metal.png" width="49%"> <img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/absorption.png" width="49%">
 
-<img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/dispersion2.png" width="400"> <img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/bubbles.png" width="400">
+<img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/dispersion2.png" width="49%"> <img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/bubbles.png" width="49%">
 
-<img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/honey.png" width="400"> <img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/subsurface.png" width="400">
+<img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/honey.png" width="49%"> <img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/subsurface.png" width="49%">
 
 This project uses the [Standard Shader Ball](https://github.com/usd-wg/assets/tree/main/full_assets/StandardShaderBall) asset.
