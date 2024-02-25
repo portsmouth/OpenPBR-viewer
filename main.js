@@ -14,7 +14,7 @@ import {
 	shaderStructs, shaderIntersectFunction, SAH, StaticGeometryGenerator
 } from 'three-mesh-bvh';
 
-import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+import { GUI } from 'lil-gui';
 
 import glsl_main            from './glsl/main.glsl?raw'
 import glsl_coat_brdf       from './glsl/coat_brdf.glsl?raw'
@@ -84,6 +84,7 @@ const params =
 
 	smooth_normals:                     true,
     bounces:                            6,
+    max_samples:                        1024,
     max_volume_steps:                   8,
     wireframe:                          true,
     neutral_color:                      [0.5, 0.5, 0.5],
@@ -154,7 +155,7 @@ const params =
 
 };
 
-let renderer, camera, scene, gui, stats;
+let renderer, camera, orbitControls, scene, gui, stats;
 let rtQuad, rtMaterial, finalQuad, renderTarget;
 let samples = 0;
 
@@ -199,8 +200,6 @@ function updateSunDir()
 
 function init()
 {
-    console.log('init');
-
     // Setup progress bar spinner
     progress_bar = new Circle('#progress_overlay',
     {
@@ -249,7 +248,7 @@ function init()
     BVH_PROPS = null;
 
 	// renderer setup
-	renderer = new WebGLRenderer( { antialias: false } );
+	renderer = new WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
 	renderer.setPixelRatio( window.devicePixelRatio );
 	renderer.setClearColor( 0x09141a );
 	renderer.setSize( window.innerWidth, window.innerHeight );
@@ -258,12 +257,6 @@ function init()
 
 	// scene setup
 	scene = new Scene();
-
-	// camera setup
-	camera = new PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 50 );
-	camera.position.set( 4, 4, 4 );
-	camera.far = 100;
-	camera.updateProjectionMatrix();
 
     // dummy light for preview while shaders compiling
 	const light = new DirectionalLight( 0xffffff, 1 );
@@ -274,6 +267,14 @@ function init()
     // stats setup
 	stats = new Stats();
 	document.body.appendChild( stats.dom );
+
+    // Samples count text
+    let samples_txt = document.getElementById('samples');
+    samples_txt.style.visibility = 'visible';
+
+    // Info text
+    let info_txt = document.getElementById('info');
+    info_txt.style.visibility = 'visible';
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // OpenPBR surface params
@@ -473,35 +474,40 @@ function init()
 
 }
 
+function reset_camera()
+{
+    let camera_fov = 23.6701655;
+    let camera_near = 0.01;
+    let camera_far = 1000.0;
+	camera = new PerspectiveCamera( camera_fov, window.innerWidth / window.innerHeight, camera_near, camera_far );
+
+    orbitControls = new OrbitControls( camera, renderer.domElement );
+    orbitControls.addEventListener( 'change', () => { resetSamples(); } );
+
+    let matrixWorld = new Matrix4();
+    matrixWorld.set(     0.9396926207859084,                  0, -0.3420201433256687, 0,
+                        -0.2203032561704394, 0.7649214009184319, -0.6052782217606094, 0,
+                        0.26161852717499334, 0.6441236297613865,  0.7187909959242699, 0,
+                          6.531538924716362,               19.5,  17.948521838355774, 1 );
+    matrixWorld.transpose();
+    camera.matrixAutoUpdate = false;
+    camera.applyMatrix4(matrixWorld);
+    camera.matrixAutoUpdate = true;
+    camera.updateMatrixWorld();
+
+    let dir = new Vector3();
+    camera.getWorldDirection(dir);
+    let cam_target = camera.position.clone();
+    cam_target.addScaledVector(dir, 23.39613);
+    orbitControls.target.copy(cam_target);
+
+    orbitControls.zoomSpeed = 1.5;
+    orbitControls.flySpeed = 0.01;
+    orbitControls.update();
+}
+
 function post_load_setup()
 {
-    //////////////////////////////////////////////////////////
-    // Setup camera
-    //////////////////////////////////////////////////////////
-
-    let orbitControls = new OrbitControls( camera, renderer.domElement );
-	orbitControls.addEventListener( 'change', () => { resetSamples(); } );
-
-    let bounds = new Box3()
-    bounds.setFromObject(MESH_SURFACE);
-    let boundsMin = bounds.min;
-    let boundsMax = bounds.max;
-    let scale = Math.max(boundsMax.x-boundsMin.x,
-                            boundsMax.y-boundsMin.y,
-                            boundsMax.z-boundsMin.z);
-    let o = [boundsMin.x, boundsMin.y, boundsMin.z];
-    let e = [boundsMax.x-boundsMin.x, boundsMax.y-boundsMin.y, boundsMax.z-boundsMin.z];
-    let center = new Vector3(o[0] + 0.5*e[0], o[1] + 0.5*e[1], o[2] + 0.5*e[2]);
-    let corner = new Vector3(o[0] +    e[0],  o[1] +     e[1], o[2] +     e[2]);
-    let d = center.clone(); d.sub(corner);
-    d.normalize();
-    let pnew = center.clone();
-    pnew.addScaledVector(d, -2.0*scale);
-    camera.position.copy(pnew);
-    orbitControls.target.copy(center);
-    orbitControls.zoomSpeed = 1.5;
-    orbitControls.update();
-
     //////////////////////////////////////////////////////////
     // Setup framebuffers
     //////////////////////////////////////////////////////////
@@ -516,6 +522,12 @@ function post_load_setup()
 
     // Trigger initial shader compile
     trigger_recompile();
+
+    //////////////////////////////////////////////////////////
+    // Setup camera
+    //////////////////////////////////////////////////////////
+
+    reset_camera();
 
     //////////////////////////////////////////////////////////
     // Setup GUI
@@ -610,7 +622,8 @@ function post_load_setup()
     renderer_folder.add( params, 'bounces', 1, 16, 1 ).onChange(                                      v => { rtMaterial.defines.BOUNCES = parseInt( v );
                                                                                                              resetSamples();
                                                                                                              trigger_recompile(); });
-    renderer_folder.add( params, 'max_volume_steps', 1, 256, 1 ).onChange(                             v => { rtMaterial.defines.MAX_VOLUME_STEPS = parseInt( v );
+    renderer_folder.add( params, 'max_samples' ).onChange(                                            v => { resetSamples(); });
+    renderer_folder.add( params, 'max_volume_steps', 1, 256, 1 ).onChange(                            v => { rtMaterial.defines.MAX_VOLUME_STEPS = parseInt( v );
                                                                                                              resetSamples();
                                                                                                              trigger_recompile(); });
     renderer_folder.close();
@@ -706,13 +719,9 @@ function render()
         return;
     }
 
-    stats.update();
-    requestAnimationFrame( render );
-
     renderer.domElement.style.imageRendering = 'auto';
 
-    const MAX_SAMPLES = 8192;
-    if (samples >= MAX_SAMPLES)
+    if (samples >= params.max_samples)
         return;
 
     if (!COMPILING && LOADED)
@@ -845,6 +854,126 @@ function render()
         {
             progress_bar.set(0.0);
             progress_bar.animate(1.0);
+        }
+    }
+
+    stats.update();
+
+    requestAnimationFrame( render );
+}
+
+
+document.onkeydown = function (event)
+{
+    event = event || window.event;
+    var charCode = (event.which) ? event.which : event.keyCode;
+    switch (charCode)
+    {
+        case 122: // F11 key: go fullscreen
+        {
+            var element	= document.body;
+            if      ( 'webkitCancelFullScreen' in document ) element.webkitRequestFullScreen();
+            else if ( 'mozCancelFullScreen'    in document ) element.mozRequestFullScreen();
+            else console.assert(false);
+            orbitControls.update();
+            resetSamples();
+            break;
+        }
+        case 70: // F key: reset cam
+        {
+            reset_camera();
+            break;
+        }
+        case 72: // H key: toggle hide/show gui
+        {
+            gui.show( gui._hidden );
+            if (document.body.contains(stats.dom)) document.body.removeChild( stats.dom );
+            else                                   document.body.appendChild( stats.dom );
+            let info_txt = document.getElementById('info');
+            if (info_txt.style.visibility == 'visible') info_txt.style.visibility = 'hidden';
+            else                                        info_txt.style.visibility = 'visible';
+            let samples_txt = document.getElementById('samples');
+            if (samples_txt.style.visibility == 'visible') samples_txt.style.visibility = 'hidden';
+            else                                           samples_txt.style.visibility = 'visible';
+            break;
+        }
+        case 87: // W key: cam forward
+        {
+            let toTarget = new Vector3();
+            toTarget.copy(orbitControls.target);
+            toTarget.sub(camera.position);
+            let distToTarget = toTarget.length();
+            toTarget.normalize();
+            var move = new Vector3();
+            move.copy(toTarget);
+            move.multiplyScalar(orbitControls.flySpeed*distToTarget);
+            camera.position.add(move);
+            orbitControls.target.add(move);
+            orbitControls.update();
+            resetSamples();
+            break;
+        }
+        case 65: // A key: cam left
+        {
+            let toTarget = new Vector3();
+            toTarget.copy(orbitControls.target);
+            toTarget.sub(camera.position);
+            let distToTarget = toTarget.length();
+            var localX = new Vector3(1.0, 0.0, 0.0);
+            var worldX = localX.transformDirection( camera.matrix );
+            var move = new Vector3();
+            move.copy(worldX);
+            move.multiplyScalar(-orbitControls.flySpeed*distToTarget);
+            camera.position.add(move);
+            orbitControls.target.add(move);
+            orbitControls.update();
+            resetSamples();
+            break;
+        }
+        case 83: // S key: cam back
+        {
+            let toTarget = new Vector3();
+            toTarget.copy(orbitControls.target);
+            toTarget.sub(camera.position);
+            let distToTarget = toTarget.length();
+            toTarget.normalize();
+            var move = new Vector3();
+            move.copy(toTarget);
+            move.multiplyScalar(-orbitControls.flySpeed*distToTarget);
+            camera.position.add(move);
+            orbitControls.target.add(move);
+            orbitControls.update();
+            resetSamples();
+            break;
+        }
+        case 68: // D key: cam right
+        {
+            let toTarget = new Vector3();
+            toTarget.copy(orbitControls.target);
+            toTarget.sub(camera.position);
+            let distToTarget = toTarget.length();
+            var localX = new Vector3(1.0, 0.0, 0.0);
+            var worldX = localX.transformDirection( camera.matrix );
+            var move = new Vector3();
+            move.copy(worldX);
+            move.multiplyScalar(orbitControls.flySpeed*distToTarget);
+            camera.position.add(move);
+            orbitControls.target.add(move);
+            orbitControls.update();
+            resetSamples();
+            break;
+        }
+        case 80: // P key: save current image to disk
+        {
+            var link = document.createElement('a');
+            let filename = `openpbr-example-screenshot.png`;
+            link.download = filename;
+            renderer.domElement.toBlob(function(blob){
+                    link.href = URL.createObjectURL(blob);
+                    var event = new MouseEvent('click');
+                    link.dispatchEvent(event);
+                },'image/png', 1);
+            break;
         }
     }
 }
