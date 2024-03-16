@@ -3,7 +3,7 @@
 // "Coat" dielectric microfacet BSDF
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-
+#ifdef COAT_ENABLED
 void coat_ndf_roughnesses(out float alpha_x, out float alpha_y)
 {
     float rsqr = sqr(coat_roughness);
@@ -14,11 +14,12 @@ void coat_ndf_roughnesses(out float alpha_x, out float alpha_y)
     alpha_x = max(min_alpha, alpha_x);
     alpha_y = max(min_alpha, alpha_y);
 }
-
+#endif // COAT_ENABLED
 
 vec3 coat_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
                         inout float pdf_woutputL)
 {
+#ifdef COAT_ENABLED
     bool transmitted = woutputL.z * winputL.z < 0.0;
     if (transmitted)
         return vec3(0.0);
@@ -61,12 +62,16 @@ vec3 coat_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
 
     // Thus evaluate BRDF
     return vec3(F) * D * ggx_G2(winputR, woutputR, alpha_x, alpha_y) / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
+#else
+    return vec3(0.0);
+#endif // COAT_ENABLED
 }
 
 
 vec3 coat_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
                       out vec3 woutputL, out float pdf_woutputL)
 {
+#ifdef COAT_ENABLED
     // We assume that the local frame is setup so that the z direction points from the dielectric interior to the exterior.
     // Thus we can determine if the reflection is internal or external to the dielectric:
     vec3 beamOutgoingL = winputL;
@@ -120,11 +125,15 @@ vec3 coat_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rn
     // Thus evaluate BRDF
     vec3 f = vec3(F) * D * G2 / max(4.0 * abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
     return f;
+#else
+    return vec3(0.0);
+#endif // // COAT_ENABLED
 }
 
 
 vec3 coat_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed)
 {
+#ifdef COAT_ENABLED
     // Estimate of the BRDF albedo, used to compute the discrete probability of selecting this lobe
     float n_exterior = 1.0;
     float n_interior = coat_ior;
@@ -148,4 +157,7 @@ vec3 coat_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rn
     }
     albedo /= float(num_samples);
     return albedo;
+#else
+    return vec3(0.0);
+#endif // COAT_ENABLED
 }

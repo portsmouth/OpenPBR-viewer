@@ -318,6 +318,7 @@ int sample_channel(in vec3 albedo, in vec3 throughput, inout uint rndSeed, inout
     return 0;
 }
 
+#ifdef VOLUME_ENABLED
 bool trace_volumetric(in vec3 pW, in vec3 dW, inout uint rndSeed,
                       in Volume volume,
                       out vec3 volume_throughput,
@@ -379,7 +380,7 @@ bool trace_volumetric(in vec3 pW, in vec3 dW, inout uint rndSeed,
     volume_throughput = vec3(0.0); // path terminated in the medium
     return false;
 }
-
+#endif // VOLUME_ENABLED
 
 void main()
 {
@@ -413,18 +414,22 @@ void main()
     vec3 throughput = vec3(1.0);
     float misWeightBSDF = 1.0; // For MIS book-keeping
 
+#ifdef VOLUME_ENABLED
     // Initialize volumetric medium of camera ray
     // (NB, camera inside the volume is not handled properly in this implementation, for simplicity)
     Volume exterior_medium;
     exterior_medium.extinction = vec3(0.0);
     exterior_medium.albedo     = vec3(0.0);
     Volume current_medium = exterior_medium;
+#endif
     bool in_dielectric = false;
 
+#ifdef DISPERSION_ENABLED
     // Stochastically choose wavelength for potential dispersion effect
     // (here just a crude uniform sample of the visible range)
     bool dispersive = false;
     wavelength_nm = 360.0 + (700.0 - 360.0)*rand(rndSeed);
+#endif // DISPERSION_ENABLED
 
     for (int vertex=0; vertex <= BOUNCES; vertex++)
     {
@@ -440,23 +445,33 @@ void main()
         vec3 baryCoord_next;
         int material_next;
 
-        // If not inside a scattering volume, ray proceeds in a straight line to the next surface hit
+        // Check for presence of volume
+#ifdef VOLUME_ENABLED
         bool inside_volume            = in_dielectric && maxComponent(current_medium.extinction) > FLT_EPSILON;
         bool inside_scattering_volume = inside_volume && maxComponent(current_medium.albedo) > FLT_EPSILON;
+#else
+        bool inside_volume = false;
+        bool inside_scattering_volume = false;
+#endif
+
+        // If not inside a scattering volume, ray proceeds in a straight line to the next surface hit
         if (!inside_scattering_volume)
         {
             // Raycast along current propagation direction dW, from current vertex pW
             surface_hit = trace(pW, dW, HUGE_DIST,
                                 pW_next, NsW_next, NgW_next, TsW_next, baryCoord_next, material_next);
 
+#ifdef VOLUME_ENABLED
             // Apply Beer-Lambert law for absorption
             if (surface_hit && inside_volume)
             {
                 float ray_length = length(pW_next - pW);
                 throughput *= exp(-ray_length * current_medium.extinction);
             }
+#endif // VOLUME_ENABLED
         }
 
+#ifdef VOLUME_ENABLED
         // Otherwise volumetric scattering may occur before the next surface hit
         else
         {
@@ -467,6 +482,7 @@ void main()
             dW = dW_next;
             throughput *= volume_throughput;
         }
+#endif // VOLUME_ENABLED
 
         if (maxComponent(throughput) < THROUGHPUT_EPSILON)
             break;
@@ -480,6 +496,16 @@ void main()
             break;
         }
 
+        // Russian roulette termination (unbiased)
+        if (maxComponent(throughput) < 1.0 && vertex > 1)
+        {
+            float q = max(0.0, 1.0 - maxComponent(throughput));
+            if (rand(rndSeed) < q)
+                break;
+            throughput /= 1.0 - q;
+        }
+
+        // Terminate at max bounce count (biased)
         if (vertex == BOUNCES)
             break;
 
@@ -549,10 +575,11 @@ void main()
         // Prepare for tracing the direct lighting and continuation rays
         pW += NgW * sign(dot(dW, NgW)) * RAY_OFFSET; // perturb vertex into geometric half-space of scattered ray
 
-        // Check if a transmission has occurred, and update the current_medium accordingly.
+        // Check if a transmission has occurred, and update the current_medium and dispersion state accordingly.
         bool transmitted = (material == MATERIAL_OPENPBR) && (dot(winputW, NgW) * dot(dW, NgW) < 0.0);
         if (transmitted)
         {
+#ifdef DISPERSION_ENABLED
             if (!in_dielectric && !dispersive)
             {
                 // On first transmission into dielectric, apply associated color of stochastically chosen wavelength
@@ -561,16 +588,19 @@ void main()
                     surface_throughput *= xyzToRgb(xyzFit_1931(wavelength_nm)) * vec3(2.7, 3.3, 3.45);
                 dispersive = true;
             }
+#endif // DISPERSION_ENABLED
 
             // Update in_dielectric state
             in_dielectric = !in_dielectric;
 
+#ifdef VOLUME_ENABLED
             // Thus update current medium
             if (in_dielectric)
                 current_medium = internal_medium;
             else
                 current_medium = exterior_medium;
-        }
+#endif // VOLUME_ENABLED
+        } // transmitted
 
         // Add direct lighting term at the current surface vertex
         misWeightBSDF = 1.0;
@@ -587,14 +617,12 @@ void main()
                 L += throughput * misWeightLight * fshadow * abs(dot(shadowW, basis.nW)) * Li / max(PDF_EPSILON, lightPdf);
                 misWeightBSDF = powerHeuristic(bsdfPdf_continuation, lightPdf);
             }
-        }
+        } // direct lighting
 
         // Update path continuation throughput
         throughput *= surface_throughput;
 
-        // TODO: Russian roulette
-
-    }
+    } // bounce loop
 
     gl_FragColor.rgb = L;
     gl_FragColor.a = accumulation_weight; // Implements Monte-Carlo accumulation via alpha blending

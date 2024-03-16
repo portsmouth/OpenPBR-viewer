@@ -15,8 +15,6 @@ void specular_ndf_roughnesses(out float alpha_x, out float alpha_y)
     alpha_y = max(min_alpha, alpha_y);
 }
 
-const float ambient_ior = 1.0;
-
 float eta_s()
 {
     float coat_ior_average = mix(ambient_ior, coat_ior, coat_weight);
@@ -43,18 +41,25 @@ float specular_ior_ratio()
     return eta_s_prime;
 }
 
-float fresnel_refl_accounting_for_coat(float mu_i, float eta_ti)
+vec3 fresnel_refl_accounting_for_coat(float mui, float eta_bc)
 {
     // Compute correct Fresnel reflection factor at specular boundary, taking into account coat refraction,
     // to avoid TIR artifact:
-    //  - mu_i is angle cosine of ray incident from exterior of surface,
-    //  - mu_s is the resulting angle cosine of the ray refracted into the specular medium (from the coat), assuming smooth boundaries
-    float mu_s = sqrt(1.0 - (1.0 - sqr(mu_i))*sqr(ambient_ior/specular_ior)); // angle-cosine of ray refracted into dielectric
-    // Thus compute Fresnel refl. coeff of this ray reversed,
-    // which equals the reflection coefficient of the ray incident from the coat into the specular medium
-    // by time-reversal (assuming no TIR, which is true in the smooth case):
-    float F = FresnelDielectricReflectance(mu_s, 1.0/eta_ti);
-    return F;
+    //  - mu_i is angle cosine of ray incident from exterior of surface
+    //  - eta_bc is the ratio of base specular IOR to coat IOR
+    float eta_ca = coat_ior / ambient_ior;
+    float eta_ba = specular_ior / ambient_ior;
+    // muc is the resulting angle cosine of the ray refracted into the coat, assuming smooth boundaries
+    float muc = sqrt(1.0 - (1.0 - sqr(mui))/sqr(eta_ca));
+    float eta_ti = mix(eta_ba, eta_bc, coat_weight);
+    vec3 F;
+    vec3 F_nofilm = vec3(FresnelDielectricReflectance(muc, eta_ti));
+#ifdef THIN_FILM_ENABLED
+    vec3 F_film = FresnelThinFilmOverDielectric(muc, eta_ti);
+    return mix(F_nofilm, F_film, thin_film_weight);
+#else
+    return F_nofilm;
+#endif // THIN_FILM_ENABLED;
 }
 
 vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
@@ -107,14 +112,16 @@ vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
     float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
 
     // Compute Fresnel factor for the dielectric reflection
-    float F;
+    vec3 F;
+#ifdef COAT_ENABLED
     if (external_reflection)
         F = fresnel_refl_accounting_for_coat(abs(dot(winputR, mR)), eta_ti_refl);
     else
-        F = FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl);
+#endif // COAT_ENABLED
+        F = vec3(FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl));
 
     // Thus evaluate BRDF.
-    float f = F * D * G2 / max(4.0 * abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
+    vec3 f = F * D * G2 / max(4.0 * abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
     return f * tint;
 }
 
@@ -181,14 +188,16 @@ vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
 
     // Compute Fresnel factor for the dielectric reflection
-    float F;
+    vec3 F;
+#ifdef COAT_ENABLED
     if (external_reflection)
         F = fresnel_refl_accounting_for_coat(abs(dot(winputR, mR)), eta_ti_refl);
     else
-        F = FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl);
+#endif // COAT_ENABLED
+        F = vec3(FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl));
 
      // Thus evaluate BRDF.
-    float f = F * D * G2 / max(4.0 * abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
+    vec3 f = F * D * G2 / max(4.0 * abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
     return f * tint;
 }
 

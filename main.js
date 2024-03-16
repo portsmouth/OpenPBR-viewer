@@ -3,7 +3,7 @@ import { Vector2, Vector3, Matrix4, Box3,
          Mesh, MeshBasicMaterial, ShaderMaterial, Scene, PerspectiveCamera, OrthographicCamera,
          DirectionalLight, AmbientLight,
          sRGBEncoding, RGBAFormat, FloatType,
-         WebGLRenderer, WebGLRenderTarget } from 'three';
+         WebGLRenderer, WebGLRenderTarget, TextureLoader } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -18,6 +18,7 @@ import { GUI } from 'lil-gui';
 
 import glsl_main            from './glsl/main.glsl?raw'
 import glsl_coat_brdf       from './glsl/coat_brdf.glsl?raw'
+import glsl_thin_film       from './glsl/thin-film.glsl?raw'
 import glsl_metal_brdf      from './glsl/metal_brdf.glsl?raw'
 import glsl_specular_brdf   from './glsl/specular_brdf.glsl?raw'
 import glsl_specular_btdf   from './glsl/specular_btdf.glsl?raw'
@@ -115,7 +116,7 @@ const params =
     specular_roughness:                  0.1,
     specular_anisotropy:                 0.0,
     specular_rotation:                   0.0,
-    specular_ior:                        1.5,
+    specular_ior:                        1.6,
 
     transmission_weight:                 0.0,
     transmission_color:                  [1.0, 1.0, 1.0],
@@ -137,7 +138,7 @@ const params =
     coat_roughness:                      0.0,
     coat_anisotropy:                     0.0,
     coat_rotation:                       0.0,
-    coat_ior:                            1.6,
+    coat_ior:                            1.3,
     coat_darkening:                      1.0,
 
     fuzz_weight:                         0.0,
@@ -147,8 +148,9 @@ const params =
     emission_luminance:                  0.0,
     emission_color:                      [1.0, 1.0, 1.0],
 
-    thin_film_thickness:                 0.0,
-    thin_film_ior:                       1.5,
+    thin_film_weight:                    0.0,
+    thin_film_thickness:                 1000.0,
+    thin_film_ior:                       1.4,
 
     geometry_opacity:                    1.0,
     geometry_thin_walled:                false,
@@ -179,7 +181,8 @@ var subsurface_mode_names = {
     'OpenPBR (max value)':        3,
     'OpenPBR (weighted average)': 4,
     'SPI / Arnold v1':            5,
-    'Arnold v2':                  6
+    'Arnold v2':                  6,
+    'Uniform scattering':         7
 }
 
 
@@ -287,7 +290,14 @@ function init()
         defines:
         {
             BOUNCES:          params.bounces,
-            MAX_VOLUME_STEPS: params.max_volume_steps
+            MAX_VOLUME_STEPS: params.max_volume_steps,
+
+            COAT_ENABLED:         false,
+            TRANSMISSION_ENABLED: false,
+            VOLUME_ENABLED:       false,
+            DISPERSION_ENABLED:   false,
+            THIN_FILM_ENABLED:    false,
+
         },
 
         uniforms:
@@ -378,6 +388,10 @@ function init()
             emission_luminance:                  { value: params.emission_luminance },
             emission_color:                      { value: array_to_vector3(params.emission_color) },
 
+            thin_film_weight:                    { value: params.thin_film_weight },
+            thin_film_thickness:                 { value: params.thin_film_thickness },
+            thin_film_ior:                       { value: params.thin_film_ior },
+
             geometry_opacity:                    { value: params.geometry_opacity },
             geometry_thin_walled:                { value: params.geometry_thin_walled }
 
@@ -402,6 +416,7 @@ function init()
                         `
                         + glsl_main
                         + glsl_coat_brdf
+                        + glsl_thin_film
                         + glsl_specular_brdf
                         + glsl_specular_btdf
                         + glsl_metal_brdf
@@ -508,6 +523,48 @@ function reset_camera()
     orbitControls.update();
 }
 
+function coat_enabled()
+{
+    if (params.coat_weight == 0.0)
+        return false;
+    return true;
+}
+
+function volume_enabled()
+{
+    if (params.base_metalness == 1.0)
+        return false;
+    if (params.transmission_weight > 0.0 &&
+        params.transmission_depth > 0.0)
+        return true;
+    if (params.subsurface_weight > 0.0)
+        return true;
+    return false;
+}
+
+function transmission_enabled()
+{
+    if (params.transmission_weight > 0.0)
+        return true;
+    if (params.subsurface_weight > 0.0)
+        return true;
+    return false;
+}
+
+function dispersion_enabled()
+{
+    if (params.transmission_dispersion_scale > 0.0)
+        return true;
+    return false;
+}
+
+function thin_film_enabled()
+{
+    if (params.thin_film_weight > 0.0)
+        return true;
+    return false;
+}
+
 function post_load_setup()
 {
     //////////////////////////////////////////////////////////
@@ -537,14 +594,21 @@ function post_load_setup()
 
     gui = new GUI({ width: 300 });
 
+    ///// Material folder /////////////////////////////////////
     const material_folder = gui.addFolder('Material');
 
+    // Base folder
     const base_folder = material_folder.addFolder('Base');
     base_folder.add(params,          'base_weight', 0.0, 1.0).onChange(                               v => { resetSamples(); });
     base_folder.addColor(params,     'base_color').onChange(                                          v => { resetSamples(); });
     base_folder.add(params,          'base_roughness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
-    base_folder.add(params,          'base_metalness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
-
+    base_folder.add(params,          'base_metalness', 0.0, 1.0).onChange(                            v => { resetSamples();
+                                                                                                             if (volume_enabled() != rtMaterial.defines.VOLUME_ENABLED)
+                                                                                                             {
+                                                                                                                 rtMaterial.defines.VOLUME_ENABLED = volume_enabled();
+                                                                                                                 trigger_recompile();
+                                                                                                             }});
+    // Specular folder
     const specular_folder = material_folder.addFolder('Specular');
     specular_folder.add(params,      'specular_weight', 0.0, 1.0).onChange(                           v => { resetSamples(); });
     specular_folder.addColor(params, 'specular_color').onChange(                                      v => { resetSamples(); });
@@ -553,18 +617,52 @@ function post_load_setup()
     specular_folder.add(params,      'specular_anisotropy', 0.0, 1.0).onChange(                       v => { resetSamples(); });
     specular_folder.add(params,      'specular_rotation', 0.0, 1.0).onChange(                         v => { resetSamples(); });
 
+    // Transmission folder
     const transmission_folder = material_folder.addFolder('Transmission');
-    transmission_folder.add(params,      'transmission_weight', 0.0, 1.0).onChange(                   v => { resetSamples(); });
+    transmission_folder.add(params,      'transmission_weight', 0.0, 1.0).onChange(                   v => { resetSamples();
+                                                                                                             if (volume_enabled() != rtMaterial.defines.VOLUME_ENABLED)
+                                                                                                             {
+                                                                                                                 rtMaterial.defines.VOLUME_ENABLED = volume_enabled();
+                                                                                                                 trigger_recompile();
+                                                                                                             }
+                                                                                                             if (transmission_enabled() != rtMaterial.defines.TRANSMISSION_ENABLED)
+                                                                                                             {
+                                                                                                                 rtMaterial.defines.TRANSMISSION_ENABLED = transmission_enabled();
+                                                                                                                 trigger_recompile();
+                                                                                                             }
+                                                                                                            });
     transmission_folder.addColor(params, 'transmission_color').onChange(                              v => { resetSamples(); });
-    transmission_folder.add(params,      'transmission_depth', 0.0, 1.0).onChange(                    v => { resetSamples(); });
+    transmission_folder.add(params,      'transmission_depth', 0.0, 1.0).onChange(                    v => { resetSamples();
+                                                                                                             if (volume_enabled() != rtMaterial.defines.VOLUME_ENABLED)
+                                                                                                             {
+                                                                                                                 rtMaterial.defines.VOLUME_ENABLED = volume_enabled();
+                                                                                                                 trigger_recompile();
+                                                                                                             }});
     transmission_folder.addColor(params, 'transmission_scatter').onChange(                            v => { resetSamples(); });
     transmission_folder.add(params,      'transmission_scatter_anisotropy', -1.0, 1.0).onChange(      v => { resetSamples(); });
     transmission_folder.add(params,      'transmission_dispersion_abbe_number', 9.0, 91.0).onChange(  v => { resetSamples(); });
-    transmission_folder.add(params,      'transmission_dispersion_scale', 0.0, 1.0).onChange(         v => { resetSamples(); });
+    transmission_folder.add(params,      'transmission_dispersion_scale', 0.0, 1.0).onChange(         v => { resetSamples();
+                                                                                                             if (dispersion_enabled() != rtMaterial.defines.DISPERSION_ENABLED)
+                                                                                                             {
+                                                                                                                 rtMaterial.defines.DISPERSION_ENABLED = dispersion_enabled();
+                                                                                                                 trigger_recompile();
+                                                                                                             }});
     transmission_folder.close();
 
+    // Subsurface folder
     const subsurface_folder = material_folder.addFolder('Subsurface');
-    subsurface_folder.add(params,      'subsurface_weight', 0.0, 1.0).onChange(                       v => { resetSamples(); });
+    subsurface_folder.add(params,      'subsurface_weight', 0.0, 1.0).onChange(                       v => { resetSamples();
+                                                                                                             if (volume_enabled() != rtMaterial.defines.VOLUME_ENABLED)
+                                                                                                             {
+                                                                                                                 rtMaterial.defines.VOLUME_ENABLED = volume_enabled();
+                                                                                                                 trigger_recompile();
+                                                                                                             }
+                                                                                                             if (transmission_enabled() != rtMaterial.defines.TRANSMISSION_ENABLED)
+                                                                                                             {
+                                                                                                                 rtMaterial.defines.TRANSMISSION_ENABLED = transmission_enabled();
+                                                                                                                 trigger_recompile();
+                                                                                                             }
+                                                                                                            });
     subsurface_folder.addColor(params, 'subsurface_color').onChange(                                  v => { resetSamples(); });
     subsurface_folder.add(params,      'subsurface_radius', 0.0, 1.0).onChange(                       v => { resetSamples(); });
     subsurface_folder.addColor(params, 'subsurface_radius_scale').onChange(                           v => { resetSamples(); });
@@ -575,8 +673,14 @@ function post_load_setup()
                                                                  });
     subsurface_folder.close();
 
+    // Coat folder
     const coat_folder = material_folder.addFolder('Coat');
-    coat_folder.add(params,          'coat_weight', 0.0, 1.0).onChange(                               v => { resetSamples(); });
+    coat_folder.add(params,          'coat_weight', 0.0, 1.0).onChange(                               v => { resetSamples();
+                                                                                                             if (coat_enabled() != rtMaterial.defines.COAT_ENABLED)
+                                                                                                             {
+                                                                                                                 rtMaterial.defines.COAT_ENABLED = coat_enabled();
+                                                                                                                 trigger_recompile();
+                                                                                                             }});
     coat_folder.addColor(params,     'coat_color').onChange(                                          v => { resetSamples(); });
     coat_folder.add(params,          'coat_roughness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
     coat_folder.add(params,          'coat_ior', 1.0, 3.0).onChange(                                  v => { resetSamples(); });
@@ -585,31 +689,42 @@ function post_load_setup()
     coat_folder.add(params,          'coat_darkening', 0.0, 1.0).onChange(                            v => { resetSamples(); });
     coat_folder.close();
 
+    // Fuzz folder
     const fuzz_folder = material_folder.addFolder('Fuzz');
     fuzz_folder.add(params,          'fuzz_weight', 0.0, 1.0).onChange(                               v => { resetSamples(); });
     fuzz_folder.addColor(params,     'fuzz_color').onChange(                                          v => { resetSamples(); });
     fuzz_folder.add(params,          'fuzz_roughness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
     fuzz_folder.close();
 
+    // Emission folder
     const emission_folder = material_folder.addFolder('Emission');
     emission_folder.add(params,          'emission_luminance', 0.0, 10.0).onChange(                   v => { resetSamples(); });
     emission_folder.addColor(params,     'emission_color').onChange(                                  v => { resetSamples(); });
     emission_folder.close();
 
+    // Thin-film folder
     const thin_film_folder = material_folder.addFolder('Thin Film');
+    thin_film_folder.add(params,          'thin_film_weight', 0.0, 1.0).onChange(                     v => { resetSamples();
+                                                                                                            if (thin_film_enabled() != rtMaterial.defines.THIN_FILM_ENABLED)
+                                                                                                            {
+                                                                                                                rtMaterial.defines.THIN_FILM_ENABLED = thin_film_enabled();
+                                                                                                                trigger_recompile();
+                                                                                                            }});
     thin_film_folder.add(params,          'thin_film_thickness', 0.0, 2000.0).onChange(               v => { resetSamples(); });
     thin_film_folder.add(params,          'thin_film_ior', 1.0, 3.0).onChange(                        v => { resetSamples(); });
     thin_film_folder.close();
 
+    // geometry folder
     const geometry_folder = material_folder.addFolder('Geometry');
     geometry_folder.add(params,      'geometry_opacity', 0.0, 1.0).onChange(                          v => { resetSamples(); });
     geometry_folder.add(params,      'geometry_thin_walled').onChange(                                v => { resetSamples(); });
     geometry_folder.close();
 
+
+    ///// Lighting folder /////////////////////////////////////
     const lighting_folder = gui.addFolder('Lighting');
     lighting_folder.add(params, 'skyPower', 0.0, 2.0).onChange(                                       v => { resetSamples(); });
     lighting_folder.addColor(params, 'skyColor').onChange(                                            v => { resetSamples(); });
-
     lighting_folder.add(params, 'sunPower', -4.0, 4.0).onChange(                                      v => { resetSamples(); });
     lighting_folder.add(params, 'sunAngularSize', 0.0, 40.0).onChange(                                v => { resetSamples(); });
     lighting_folder.add(params, 'sunLatitude', 0.0, 90.0).onChange(                                   v => { resetSamples(); });
@@ -617,6 +732,8 @@ function post_load_setup()
     lighting_folder.addColor(params, 'sunColor').onChange(                                            v => { resetSamples(); });
     lighting_folder.close();
 
+
+    ///// Renderer folder /////////////////////////////////////
     const renderer_folder = gui.addFolder('Renderer');
     renderer_folder.add( params, 'smooth_normals' ).onChange(                                         v => { resetSamples(); });
     renderer_folder.add( params, 'wireframe' ).onChange(                                              v => { resetSamples(); });
@@ -725,7 +842,10 @@ function render()
     renderer.domElement.style.imageRendering = 'auto';
 
     if (samples >= params.max_samples)
+    {
+        requestAnimationFrame( render );
         return;
+    }
 
     if (!COMPILING && LOADED)
     {
@@ -798,6 +918,10 @@ function render()
         uniforms.emission_luminance.value                     = params.emission_luminance;
         uniforms.emission_color.value.copy(get_vector3(         params.emission_color));
 
+        uniforms.thin_film_weight.value                       = params.thin_film_weight;
+        uniforms.thin_film_thickness.value                    = params.thin_film_thickness;
+        uniforms.thin_film_ior.value                          = params.thin_film_ior;
+
         uniforms.geometry_opacity.value                       = params.geometry_opacity;
         uniforms.geometry_thin_walled.value                   = params.geometry_thin_walled;
 
@@ -844,8 +968,8 @@ function render()
         if (progress_bar_visible)
         {
             let time_since_progress_finished_ms = performance.now() - progress_finished_timer;
-            if (time_since_progress_finished_ms > 400.0)
-                fadeOutProgressBar(400);
+            if (time_since_progress_finished_ms > 300.0)
+                fadeOutProgressBar(300);
         }
     }
 
