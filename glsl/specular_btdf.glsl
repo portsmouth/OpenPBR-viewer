@@ -7,6 +7,7 @@
 vec3 specular_btdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
                             inout float pdf_woutputL)
 {
+#ifdef TRANSMISSION_ENABLED
     bool reflected = woutputL.z * winputL.z > 0.0;
     if (reflected)
     {
@@ -22,7 +23,11 @@ vec3 specular_btdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
     // Compute IOR ratio at interface:
     //  eta_ti_photon = (IOR in hemi. of transmitted photon) / (IOR in hemi. of incident photon)
     // (NB, ignores coat IOR! To take that into account, need to properly account for refraction through coat)
+#ifdef DISPERSION_ENABLED
     float eta_ie = specular_ior_dispersive(); // n_interior / n_exterior
+#else
+    float eta_ie = specular_ior;
+#endif // DISPERSION_ENABLED
     float eta_ti_photon = external_transmission ? 1.0/eta_ie : eta_ie;
     if (abs(eta_ti_photon - 1.0) < IOR_EPSILON)
     {
@@ -79,8 +84,12 @@ vec3 specular_btdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
     // Apply non-physical tint in zero transmission_depth case
     vec3 tint = (transmission_depth == 0.0) ? transmission_color : vec3(1.0);
     return f * tint;
+#else
+    return vec3(0.0);
+#endif // TRANSMISSION_ENABLED
 }
 
+#ifdef TRANSMISSION_ENABLED
 
 // Given the direction (wt) of a light beam transmitted through a plane dielectric interface
 // with the given normal (n) in any orientation, and the ratio eta_ti_photon = nt/ni of the transmitted IOR (nt) and incident IOR (ni),
@@ -94,10 +103,12 @@ bool refraction_given_transmitted_beam(in vec3 n, in float eta_ti_photon, in vec
     return true;
 }
 
+#endif // TRANSMISSION_ENABLED
 
 vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
                           out vec3 woutputL, out float pdf_woutputL)
 {
+#ifdef TRANSMISSION_ENABLED
     // We assume that the local frame is setup so that the z direction points from the dielectric interior to the exterior.
     // Thus we can determine if the photon transmission is to the exterior (from the interior), or the opposite:
     vec3 beamOutgoingL = winputL;
@@ -106,7 +117,11 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     // Compute IOR ratio at interface:
     //  eta_ti_photon = (IOR in hemi. of transmitted photon) / (IOR in hemi. of incident photon)
     // (NB, ignores coat IOR! To take that into account, need to properly account for refraction through coat)
+#ifdef DISPERSION_ENABLED
     float eta_ie = specular_ior_dispersive(); // n_interior / n_exterior
+#else
+    float eta_ie = specular_ior;
+#endif // DISPERSION_ENABLED
     float eta_ti_photon = external_transmission ? 1.0/eta_ie : eta_ie;
     if (abs(eta_ti_photon - 1.0) < IOR_EPSILON)
     {
@@ -177,13 +192,21 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     // Apply non-physical tint in zero transmission_depth case
     vec3 tint = (transmission_depth == 0.0) ? transmission_color : vec3(1.0);
     return f * tint;
+#else
+    return vec3(0.0);
+#endif // TRANSMISSION_ENABLED
 }
 
 
 vec3 specular_btdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed)
 {
+#ifdef TRANSMISSION_ENABLED
     // Estimate of the BTDF albedo, used to compute the discrete probability of selecting this lobe
+#ifdef DISPERSION_ENABLED
     float eta_ie = specular_ior_dispersive(); // n_interior / n_exterior
+#else
+    float eta_ie = specular_ior;
+#endif // DISPERSION_ENABLED
     if (abs(eta_ie - 1.0) < IOR_EPSILON)
     {
         // degenerate case of index-matched interface, BTDF is a delta-function
@@ -204,4 +227,7 @@ vec3 specular_btdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     }
     albedo /= float(num_samples);
     return albedo;
+#else
+    return vec3(0.0);
+#endif // TRANSMISSION_ENABLED
 }

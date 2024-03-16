@@ -77,6 +77,10 @@ uniform float fuzz_weight;
 uniform vec3  fuzz_color;
 uniform float fuzz_roughness;
 
+uniform float thin_film_weight;
+uniform float thin_film_thickness;
+uniform float thin_film_ior;
+
 uniform float emission_luminance;
 uniform vec3  emission_color;
 
@@ -322,6 +326,8 @@ float sample_triangle_filter(float xi)
 // material calculations
 /////////////////////////////////////////////////////////////////////////
 
+const float ambient_ior = 1.0;
+
 bool cutout(in int material, inout uint rndSeed)
 {
     if (material != MATERIAL_OPENPBR)
@@ -333,22 +339,45 @@ bool cutout(in int material, inout uint rndSeed)
     return false;
 }
 
-// cosi    = magnitude of the cosine of the incident ray angle to the micronormal
+// mui     = magnitude of the cosine of the incident ray angle to the micronormal
 // eta_ti  = ratio et/ei of the transmitted IOR (et) and incident IOR (ei)
-float FresnelDielectricReflectance(in float cosi, in float eta_ti)
+// Outputs vec2(rs, rp), the amplitudes of the S, P polarized reflection (where squared amplitudes give reflectance).
+vec2 FresnelDielectricPolarizations(float mui, float eta_ti)
 {
-    float c = cosi;
-    float g = eta_ti*eta_ti - 1.0 + c*c;
-    if (g > 0.0)
-    {
-        g = sqrt(g);
-        float A = (g-c) / (g+c);
-        float B = (c*(g+c) - 1.0) / (c*(g-c) + 1.0);
-        return 0.5*A*A*(1.0 + B*B);
-    }
-    return 1.0; // total internal reflection
+    float mut2 = sqr(eta_ti) - (1.0 - sqr(mui));
+    if (mut2 <= 0.0) return vec2(1.0, 1.0); // (total internal reflection)
+    float mut = sqrt(mut2) / eta_ti;
+    float rs = (mui - eta_ti*mut) / (mui + eta_ti*mut);
+    float rp = (mut - eta_ti*mui) / (mut + eta_ti*mui);
+    return vec2(rs, rp);
 }
 
+// mui     = magnitude of the cosine of the incident ray angle to the micronormal
+// eta_ti  = ratio et/ei of the transmitted IOR (et) and incident IOR (ei)
+float FresnelDielectricReflectance(in float mui, in float eta_ti)
+{
+    // assuming unpolarized incident light
+    vec2 r = FresnelDielectricPolarizations(mui, eta_ti);
+    return 0.5*dot(r, r);
+}
+
+vec3 FresnelSchlick(vec3 F0, float mu)
+{
+    return F0 + pow(1.0 - mu, 5.0)*(vec3(1.0) - F0);
+}
+
+vec3 FresnelF82Tint(float mu, in vec3 F0, in vec3 F82tint)
+{
+    const float mu_bar = 1.0/7.0;
+    const float denom = mu_bar * pow(1.0 - mu_bar, 6.0);
+    vec3 Fschlick_bar = FresnelSchlick(F0, mu_bar);
+    vec3 Fschlick     = FresnelSchlick(F0, mu);
+    return Fschlick - mu * pow(1.0 - mu, 6.0) * (vec3(1.0) - F82tint) * Fschlick_bar / denom;
+}
+
+#ifdef COAT_ENABLED
+
+// Hemispherical (average) albedo of dielectric Fresnel factor
 float E_F(float eta)
 {
     return log((10893.0*eta - 1438.2)/(-774.4*sqr(eta) + 10212.0*eta + 1.0));
@@ -360,6 +389,9 @@ float average_dielectric_fresnel(float eta)
     else if (eta < 1.0) return 1.0 - sqr(eta)*(1.0 - E_F(1.0/eta));
     else return 0.0;
 }
+
+#endif // COAT_ENABLED
+
 
 /////////////////////////////////////////////////////////////////////////
 // GGX Microfacet formulae
@@ -434,7 +466,7 @@ struct Volume
     float anisotropy;   // phase function anisotropy in [-1, 1]
 };
 
-// Sample Henyey-Greenstein phase function
+#ifdef VOLUME_ENABLED
 vec3 samplePhaseFunction(in vec3 dW, float anisotropy, inout uint rndSeed)
 {
     float U = rand(rndSeed);
@@ -450,9 +482,11 @@ vec3 samplePhaseFunction(in vec3 dW, float anisotropy, inout uint rndSeed)
     Basis basis = makeBasis(dW);
     return costheta*dW + sintheta*(cos(phi)*basis.tW + sin(phi)*basis.bW);
 }
+#endif
 
 float wavelength_nm;
 
+#ifdef DISPERSION_ENABLED
 // Wavelength-dependent IOR according to Cauchy formula
 float specular_ior_dispersive()
 {
@@ -466,6 +500,7 @@ float specular_ior_dispersive()
     float A = nd - B/sqr(lambda_d);
     return A + B/sqr(wavelength_nm);
 }
+#endif // DISPERSION_ENABLED
 
 
 /////////////////////////////////////////////////////////////////////////
@@ -476,6 +511,8 @@ float luminance_srgb(in vec3 C)
 {
     return 0.2126*C.r + 0.7152*C.g + 0.0722*C.b;
 }
+
+#ifdef DISPERSION_ENABLED
 
 // Spectrum to XYZ approx function from Sloan: http://jcgt.org/published/0002/02/01/paper.pdf
 // Inputs:  Wavelength in nanometers
@@ -507,3 +544,5 @@ vec3 xyzToRgb(vec3 XYZ)
 	                  -0.969256 , 1.875991,  0.041556,
 	                   0.055648, -0.204043,  1.057311);
 }
+
+#endif // DISPERSION_ENABLED

@@ -90,6 +90,7 @@ void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
 
     // Compute base darkening factor due to presence of coat:
     vec3 base_darkening = vec3(1.0);
+#ifdef COAT_ENABLED
     if (coated && coat_darkening > 0.0)
     {
         float Kr = 1.0 - (1.0 - average_dielectric_fresnel(coat_ior))/sqr(coat_ior);
@@ -105,6 +106,7 @@ void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
         vec3 Delta = (1.0 - K) / vec3(1.0 - E_base*K);                    // full darkening factor
         base_darkening = mix(vec3(1.0), Delta, C * coat_darkening);       // modulated darkening factor
     }
+#endif // COAT_ENABLED
     vec3 w_base_substrate = w_coated_base * mix(vec3(1.0), base_darkening * coat_color * (vec3(1.0) - albedos.m[ID_COAT_BRDF]), C);
 
     // Metal BRDF
@@ -212,6 +214,8 @@ vec3 openpbr_bsdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 
 // OpenPBR BSDF: sampling
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#ifdef VOLUME_ENABLED
+
 void fill_transmission_medium(inout Volume internal_medium)
 {
     // Set up the volumetric medium according to the "Translucent Base" section of the OpenPBR spec
@@ -296,10 +300,20 @@ void fill_subsurface_medium(inout Volume internal_medium)
             internal_medium.extinction = 1.0 / max(vec3(3.0*RAY_OFFSET), r);
             break;
         }
+        case 7: // 'Uniform scattering'
+        {
+            s2 = s2_vandehulst;                                // use van de Hulst remapping
+            vec3 ss_albedo = (1.0 - s2) / (1.0 - g*s2);        // gives single-scattering albedo accounting for anisotropy
+            vec3 mu_t = 1.0 / max(mfp_epsilon, ss_albedo * r); // with mu_s = 1/r, we have mu_t = mu_s / ss_albedo
+            internal_medium.extinction = mu_t;
+            break;
+        }
     }
     internal_medium.albedo     = (1.0 - s2) / (1.0 - g*s2); // single-scattering albedo accounting for anisotropy
     internal_medium.anisotropy = g;
 }
+
+#endif // VOLUME_ENABLED
 
 vec3 openpbr_bsdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
                          out vec3 woutputL, out float pdf_woutputL, out Volume internal_medium)
@@ -342,12 +356,14 @@ vec3 openpbr_bsdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint
             if (!transmitted_inside)
                 return f;
 
+#ifdef VOLUME_ENABLED
             // But if the specular BTDF or SSS lobe were sampled, producing a transmission into the object interior,
             // we also populate the associated volumetric bulk medium
             if (lobe_id==ID_SPEC_BTDF)
                 fill_transmission_medium(internal_medium);
             else if (lobe_id==ID_SSSC_BTDF)
                 fill_subsurface_medium(internal_medium);
+#endif
 
             return f;
         }

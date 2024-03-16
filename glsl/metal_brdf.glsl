@@ -3,20 +3,6 @@
 // "Metal" conductor microfacet BSDF
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-vec3 FresnelSchlick(vec3 F0, float mu)
-{
-    return F0 + pow(1.0 - mu, 5.0)*(vec3(1.0) - F0);
-}
-
-vec3 FresnelF82Tint(float mu, in vec3 F0, in vec3 F82tint)
-{
-    const float mu_bar = 1.0/7.0;
-    const float denom = mu_bar * pow(1.0 - mu_bar, 6.0);
-    vec3 Fschlick_bar = FresnelSchlick(F0, mu_bar);
-    vec3 Fschlick     = FresnelSchlick(F0, mu);
-    return Fschlick - mu * pow(1.0 - mu, 6.0) * (vec3(1.0) - F82tint) * Fschlick_bar / denom;
-}
-
 
 vec3 metal_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
                          inout float pdf_woutputL)
@@ -49,7 +35,18 @@ vec3 metal_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wo
     pdf_woutputL = max(PDF_EPSILON, DV * dwh_dwo);
 
     // Compute Fresnel factor for the conductor reflection
-    vec3 F = FresnelF82Tint(abs(dot(winputR, mR)), base_weight * base_color, specular_weight * specular_color);
+    vec3 F;
+    vec3 F_nofilm = FresnelF82Tint(abs(dot(winputR, mR)), base_weight * base_color, specular_weight * specular_color);
+#ifdef THIN_FILM_ENABLED
+    if (thin_film_weight > 0.0)
+    {
+        float eta_fe = mix(thin_film_ior/ambient_ior, thin_film_ior/coat_ior, coat_weight);
+        vec3 F_film = FresnelThinFilmOverConductor(abs(dot(winputR, mR)), eta_fe);
+        F = mix(F_nofilm, F_film, thin_film_weight);
+    }
+    else
+#endif // THIN_FILM_ENABLED
+        F = F_nofilm;
 
     // Compute shadowing-masking term
     float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
@@ -95,7 +92,15 @@ vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint r
     pdf_woutputL = max(PDF_EPSILON, DV * dwh_dwo);
 
     // Compute Fresnel factor for the conductor reflection
-    vec3 F = FresnelF82Tint(abs(dot(winputR, mR)), base_weight * base_color, specular_weight * specular_color);
+    vec3 F;
+    vec3 F_nofilm = FresnelF82Tint(abs(dot(winputR, mR)), base_weight * base_color, specular_weight * specular_color);
+#ifdef THIN_FILM_ENABLED
+    float eta_fe = mix(thin_film_ior/ambient_ior, thin_film_ior/coat_ior, coat_weight);
+    vec3 F_film = FresnelThinFilmOverConductor(abs(dot(winputR, mR)), eta_fe);
+    F = mix(F_nofilm, F_film, thin_film_weight);
+#else
+    F = F_nofilm;
+#endif // THIN_FILM_ENABLED
 
     // Compute shadowing-masking term
     float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
