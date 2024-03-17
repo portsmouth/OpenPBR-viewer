@@ -110,6 +110,7 @@ const params =
     base_color:                          [0.8, 0.8, 0.8],
     base_roughness:                      0.0,
     base_metalness:                      0.0,
+    diffuse_mode:                        1, // FOR TESTING
 
     specular_weight:                     1.0,
     specular_color:                      [1.0, 1.0, 1.0],
@@ -182,7 +183,19 @@ var subsurface_mode_names = {
     'OpenPBR (weighted average)': 4,
     'SPI / Arnold v1':            5,
     'Arnold v2':                  6,
-    'Uniform scattering':         7
+    'Uniform scattering':         7,
+    'Interfaced van de Hulst':    8
+}
+
+var diffuse_mode_names = {
+    'Lambert':                        0,
+    'ON Qualitative (Mitsuba)':       1,
+    'ON Full (Mitsuba)':              2,
+    'd\'Eon sphere model':            3,
+    'Fujii - Qualitative':            4,
+    'Fujii - Improved':               5,
+    'Fujii - MaterialX':              6,
+    'Chan Diffuse (Unreal)':          7
 }
 
 
@@ -346,6 +359,7 @@ function init()
             // material
             //////////////////////////////////////////////////////
 
+            diffuse_mode:                        { value: params.diffuse_mode },
             base_weight:                         { value: params.base_weight },
             base_color:                          { value: array_to_vector3(params.base_color) },
             base_roughness:                      { value: params.base_roughness },
@@ -608,6 +622,8 @@ function post_load_setup()
                                                                                                                  rtMaterial.defines.VOLUME_ENABLED = volume_enabled();
                                                                                                                  trigger_recompile();
                                                                                                              }});
+    base_folder.add(params,           'diffuse_mode', diffuse_mode_names).onChange(                   v => { resetSamples(); });
+
     // Specular folder
     const specular_folder = material_folder.addFolder('Specular');
     specular_folder.add(params,      'specular_weight', 0.0, 1.0).onChange(                           v => { resetSamples(); });
@@ -667,10 +683,7 @@ function post_load_setup()
     subsurface_folder.add(params,      'subsurface_radius', 0.0, 1.0).onChange(                       v => { resetSamples(); });
     subsurface_folder.addColor(params, 'subsurface_radius_scale').onChange(                           v => { resetSamples(); });
     subsurface_folder.add(params,      'subsurface_anisotropy', -1.0, 1.0).onChange(                  v => { resetSamples(); });
-    subsurface_folder.add(params,      'subsurface_mode', subsurface_mode_names).onChange(
-                                                            v => {
-                                                                    resetSamples();
-                                                                 });
+    subsurface_folder.add(params,      'subsurface_mode', subsurface_mode_names).onChange(            v => { resetSamples(); });
     subsurface_folder.close();
 
     // Coat folder
@@ -738,11 +751,11 @@ function post_load_setup()
     renderer_folder.add( params, 'smooth_normals' ).onChange(                                         v => { resetSamples(); });
     renderer_folder.add( params, 'wireframe' ).onChange(                                              v => { resetSamples(); });
     renderer_folder.addColor(params, 'neutral_color').onChange(                                       v => { resetSamples(); });
-    renderer_folder.add( params, 'bounces', 1, 16, 1 ).onChange(                                      v => { rtMaterial.defines.BOUNCES = parseInt( v );
+    renderer_folder.add( params, 'bounces', 0, 100, 1 ).onChange(                                     v => { rtMaterial.defines.BOUNCES = parseInt( v );
                                                                                                              resetSamples();
                                                                                                              trigger_recompile(); });
     renderer_folder.add( params, 'max_samples' ).onChange(                                            v => { resetSamples(); });
-    renderer_folder.add( params, 'max_volume_steps', 1, 256, 1 ).onChange(                            v => { rtMaterial.defines.MAX_VOLUME_STEPS = parseInt( v );
+    renderer_folder.add( params, 'max_volume_steps', 1, 100, 1 ).onChange(                            v => { rtMaterial.defines.MAX_VOLUME_STEPS = parseInt( v );
                                                                                                              resetSamples();
                                                                                                              trigger_recompile(); });
     renderer_folder.close();
@@ -880,6 +893,7 @@ function render()
         uniforms.base_color.value.copy(get_vector3(             params.base_color));
         uniforms.base_roughness.value                         = params.base_roughness;
         uniforms.base_metalness.value                         = params.base_metalness;
+        uniforms.diffuse_mode.value                           = params.diffuse_mode;
 
         uniforms.specular_weight.value                        = params.specular_weight;
         uniforms.specular_color.value.copy(get_vector3(         params.specular_color));

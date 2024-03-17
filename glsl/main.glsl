@@ -39,9 +39,10 @@ uniform bool smooth_normals;
 //////////////////////////////////////////////////////
 
 uniform float base_weight;
-uniform vec3 base_color;
+uniform vec3  base_color;
 uniform float base_roughness;
 uniform float base_metalness;
+uniform int   diffuse_mode; // FOR TESTING
 
 uniform float specular_weight;
 uniform vec3  specular_color;
@@ -375,8 +376,6 @@ vec3 FresnelF82Tint(float mu, in vec3 F0, in vec3 F82tint)
     return Fschlick - mu * pow(1.0 - mu, 6.0) * (vec3(1.0) - F82tint) * Fschlick_bar / denom;
 }
 
-#ifdef COAT_ENABLED
-
 // Hemispherical (average) albedo of dielectric Fresnel factor
 float E_F(float eta)
 {
@@ -389,8 +388,6 @@ float average_dielectric_fresnel(float eta)
     else if (eta < 1.0) return 1.0 - sqr(eta)*(1.0 - E_F(1.0/eta));
     else return 0.0;
 }
-
-#endif // COAT_ENABLED
 
 
 /////////////////////////////////////////////////////////////////////////
