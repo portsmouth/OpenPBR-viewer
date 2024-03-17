@@ -146,19 +146,19 @@ float TraceShadow(in vec3 rayOrigin, in vec3 rayDir, in float maxDistance)
 vec3 neutral_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
                         inout float pdf_woutputL)
 {
-    pdf_woutputL = pdfHemisphereCosineWeighted(winputL);
-    if (winputL.z < 0.0 || woutputL.z < 0.0) return vec3(0.0);
+    if (winputL.z < DENOM_TOLERANCE || woutputL.z < DENOM_TOLERANCE) return vec3(0.0);
+    pdf_woutputL = pdfHemisphereCosineWeighted(woutputL);
     if (wireframe && minComponent(basis.baryCoord) < 0.003) return vec3(0.0);
-    return neutral_color/PI;
+    return neutral_color / PI;
 }
 
 vec3 neutral_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
                          out vec3 woutputL, out float pdf_woutputL)
 {
+    if (winputL.z < DENOM_TOLERANCE) return vec3(0.0);
     woutputL = sampleHemisphereCosineWeighted(rndSeed, pdf_woutputL);
-    if (winputL.z < 0.0) return vec3(0.0);
     if (wireframe && minComponent(basis.baryCoord) < 0.003) return vec3(0.0);
-    return neutral_color/PI;
+    return neutral_color / PI;
 }
 
 //////////////////////////////////////
@@ -254,7 +254,7 @@ float skyPdf(in vec3 woutputL, in vec3 woutputWs)
     return pdfHemisphereCosineWeighted(woutputL);
 }
 
-// Estimate direct radiance at the given surface vertex
+// Sample direct radiance at the given surface vertex
 vec3 LiDirect(in vec3 pW, in Basis basis,
               out vec3 shadowL, out vec3 shadowW,
               out float lightPdf,
@@ -287,6 +287,20 @@ vec3 LiDirect(in vec3 pW, in Basis basis,
     if (maxComponent(Li) < RADIANCE_EPSILON) return vec3(0.0);
     float visibility = TraceShadow(pW, shadowW, HUGE_DIST);
     return visibility * Li;
+}
+
+// Corresponding PDF of direct radiance in the given shadow ray direction (for MIS)
+float LiPDF(in vec3 shadowW, in Basis basis)
+{
+    vec3 shadowL = worldToLocal(shadowW, basis);
+    float pdf_sky = skyPdf(shadowL, shadowW);
+    float pdf_sun = sunPdf(shadowL, shadowW);
+    float w_sun = sunTotalPower();
+    float w_sky = skyTotalPower();
+    float P_sun = w_sun / (w_sun + w_sky);
+    float P_sky = max(0.0, 1.0 - P_sun);
+    float lightPdf = P_sun*pdf_sun + P_sky*pdf_sky; // Light PDF according to 1-sample MIS
+    return lightPdf;
 }
 
 vec3 evaluateEdf(in vec3 pW, in Basis basis, in vec3 winputL)
@@ -412,7 +426,8 @@ void main()
     // Perform uni-directional pathtrace starting from the (pinhole) camera lens to estimate the primary ray radiance, L
     vec3 L = vec3(0.0);
     vec3 throughput = vec3(1.0);
-    float misWeightBSDF = 1.0; // For MIS book-keeping
+    Basis basis;                      // kept for MIS book-keeping
+    float bsdfPdf_continuation = 1.0; // ditto
 
 #ifdef VOLUME_ENABLED
     // Initialize volumetric medium of camera ray
@@ -433,10 +448,8 @@ void main()
 
     for (int vertex=0; vertex <= BOUNCES; vertex++)
     {
-        if (maxComponent(throughput) < THROUGHPUT_EPSILON)
-            break;
-
         // Generate next surface hit, given current vertex pW and current propagation direction dW
+        // (where vertex 0 corresponds to the camera position)
         bool surface_hit;
         vec3 pW_next;
         vec3 NsW_next;
@@ -484,25 +497,17 @@ void main()
         }
 #endif // VOLUME_ENABLED
 
-        if (maxComponent(throughput) < THROUGHPUT_EPSILON)
-            break;
-
         if (!surface_hit)
         {
-            // Camera ray missed all geometry; add contribution from distant lights
-            L += throughput * misWeightBSDF * (sunRadiance(dW) + skyRadiance(dW));
-
-            // Ray escapes to infinity, terminate path
-            break;
-        }
-
-        // Russian roulette termination (unbiased)
-        if (maxComponent(throughput) < 1.0 && vertex > 1)
-        {
-            float q = max(0.0, 1.0 - maxComponent(throughput));
-            if (rand(rndSeed) < q)
-                break;
-            throughput /= 1.0 - q;
+            // Ray missed all geometry; add contribution from distant lights
+            float misWeightLight = 1.0;
+            if (vertex > 0)
+            {
+                float lightPdf = LiPDF(dW, basis); // surface basis of previous hit
+                misWeightLight = powerHeuristic(bsdfPdf_continuation, lightPdf);
+            }
+            L += throughput * misWeightLight * (sunRadiance(dW) + skyRadiance(dW));
+            break; // Ray escapes to infinity, terminate path
         }
 
         // Terminate at max bounce count (biased)
@@ -536,7 +541,6 @@ void main()
         if (dot(NgW, NsW) < 0.0) NgW *= -1.0;
 
         // Construct local shading frame
-        Basis basis;
         if (smooth_normals)
         {
             // If the surface is opaque, but the incident ray lies below the hemisphere of the normal,
@@ -557,7 +561,6 @@ void main()
             openpbr_prepare(pW, basis, winputL, rndSeed);
 
         // Sample BSDF for the continuation ray direction
-        float bsdfPdf_continuation;
         Volume internal_medium;
         vec3 surface_throughput;
         {
@@ -603,7 +606,6 @@ void main()
         } // transmitted
 
         // Add direct lighting term at the current surface vertex
-        misWeightBSDF = 1.0;
         if (!in_dielectric && !transmitted)
         {
             vec3 shadowL, shadowW; // sampled shadow ray direction
@@ -615,12 +617,21 @@ void main()
                 vec3 fshadow = evaluateBsdf(pW, basis, winputL, shadowL, material, bsdfPdf_shadow);
                 float misWeightLight = powerHeuristic(lightPdf, bsdfPdf_shadow);
                 L += throughput * misWeightLight * fshadow * abs(dot(shadowW, basis.nW)) * Li / max(PDF_EPSILON, lightPdf);
-                misWeightBSDF = powerHeuristic(bsdfPdf_continuation, lightPdf);
+
             }
         } // direct lighting
 
         // Update path continuation throughput
         throughput *= surface_throughput;
+
+        // Russian roulette termination (unbiased)
+        if (maxComponent(throughput) < 1.0 && vertex > 1)
+        {
+            float q = max(0.0, 1.0 - maxComponent(throughput));
+            if (rand(rndSeed) < q)
+                break;
+            throughput /= 1.0 - q;
+        }
 
     } // bounce loop
 
