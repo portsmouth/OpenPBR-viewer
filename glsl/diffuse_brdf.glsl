@@ -3,30 +3,6 @@
 // The original Oren-Nayar model, full and "qualitative" version
 ////////////////////////////////////////////////////////////////////////////////////
 
-vec3 ON_qualitative(in vec3 Albedo, float sigma,
-                    in vec3 V, in vec3 L)
-{
-    // Qualitative model / Fast approximation
-    float cosThetaI = V.z, sinThetaI = sqrt(1.0 - cosThetaI * cosThetaI);
-    float cosThetaO = L.z, sinThetaO = sqrt(1.0 - cosThetaO * cosThetaO);
-    float cosPhiDiff = 0.0;
-    float sinAlpha, tanBeta;
-    if (cosThetaI > cosThetaO)
-    {
-        sinAlpha = sinThetaO;
-        tanBeta = sinThetaI / cosThetaI;
-    }
-    else
-    {
-        sinAlpha = sinThetaI;
-        tanBeta = sinThetaO / cosThetaO;
-    }
-    float sigma2 = sqr(sigma);
-    float A = 1.0f - 0.5f * sigma2 / (sigma2 + 0.33f);
-    float B = 0.45f * sigma2 / (sigma2 + 0.09f);
-    return Albedo * (cosThetaO / PI) * (A + B * max(cosPhiDiff, 0.0) * sinAlpha * tanBeta);
-}
-
 float safeacos(const float x)
 {
     return acos(clamp(x, -1.0, 1.0));
@@ -39,6 +15,18 @@ vec3 ON_full(in vec3 Albedo, float sigma,
     float cosThetaI = V.z, sinThetaI = sqrt(1.0 - cosThetaI * cosThetaI);
     float cosThetaO = L.z, sinThetaO = sqrt(1.0 - cosThetaO * cosThetaO);
     float cosPhiDiff = 0.0;
+    if (sinThetaI > 0.0 && sinThetaO > 0.0)
+    {
+        /* Compute cos(phiO-phiI) using the half-angle formulae */
+        vec3 wi = V;
+        vec3 wo = L;
+        float sinPhiI = clamp(wi.y / sinThetaI, -1.0, 1.0),
+              cosPhiI = clamp(wi.x / sinThetaI, -1.0, 1.0),
+              sinPhiO = clamp(wo.y / sinThetaO, -1.0, 1.0),
+              cosPhiO = clamp(wo.x / sinThetaO, -1.0, 1.0);
+        cosPhiDiff = cosPhiI * cosPhiO + sinPhiI * sinPhiO;
+    }
+
     float thetaI = safeacos(V.z),
           thetaO = safeacos(L.z),
           alpha = max(thetaI, thetaO),
@@ -81,6 +69,19 @@ vec3 ON_full(in vec3 Albedo, float sigma,
     return (snglScat + dblScat) * (cosThetaO / PI);
 }
 
+vec3 ON_qualitative(in vec3 Albedo, float sigma,
+                    in vec3 V, in vec3 L)
+{
+    float NdotV = V.z;
+    float NdotL = L.z;
+    float s = dot(L, V) - NdotV * NdotL;
+    float stinv = (s > 0.0f) ? s / max(NdotL, NdotV) : 0.0;
+    float sigma2 = sqr(sigma);
+    float A = 1.0f - 0.5f * (sigma2 / (sigma2 + 0.33f));
+    float B = 0.45f * sigma2 / (sigma2 + 0.09f);
+    return Albedo * NdotL / PI * (A + B * stinv);
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////////
 // Fujii models
@@ -89,23 +90,12 @@ vec3 ON_full(in vec3 Albedo, float sigma,
 vec3 fujii_brdf(in vec3 Albedo, float sigma, float stinv)
 {
     // Recommended A,B are different from Oren-Nayar's
-    float A = 1.0 / (PI + (PI / 2.0 - 2.0 / 3.0) * sigma);
+    float A = 1.0 / (1.0 + (0.5 - 2.0/(3.0*PI)) * sigma);
     float B = sigma * A;
-    return Albedo * max(A + B * stinv, 0.0);
+    return Albedo / PI * max(A + B * stinv, 0.0);
 }
 
 vec3 fujii_qualitative(in vec3 Albedo, float roughness, in vec3 V, in vec3 L)
-{
-    // Has dark ring artifact + gains energy at grazing angles
-    float NdotV = V.z;
-    float NdotL = L.z;
-    float s = dot(L, V) - NdotV * NdotL;
-    float stinv = s > 0.0 ? s / max(NdotV, NdotL) : 0.0;
-    float sigma = roughness;
-    return NdotL * fujii_brdf(Albedo, sigma, stinv);
-}
-
-vec3 fujii_improved(in vec3 Albedo, float roughness, in vec3 V, in vec3 L)
 {
     // No more dark ring, but loses a bit of energy as roughness->1.0
     float NdotV = V.z;
@@ -130,6 +120,26 @@ vec3 fujii_materialx(in vec3 Albedo, float roughness, in vec3 V, in vec3 L)
     float A = 1.0 - 0.5 * (sigma2 / (sigma2 + 0.33));
     float B = 0.45 * sigma2 / (sigma2 + 0.09);
     return Albedo * NdotL / PI * (A + B * stinv);
+}
+
+vec3 fujii_energy_conserving(in vec3 rho, float sigma, in vec3 wi, in vec3 wo)
+{
+    float eps = 1.0e-7;
+    float muI = wi.z, siI = max(0.0, sqrt(1.0 - muI * muI));
+    float muO = wo.z, siO = max(0.0, sqrt(1.0 - muO * muO));
+    float s = dot(wi, wo) - muI * muO;
+    float stinv = s > 0.0 ? s / max(muI, muO) : s;                                                 // Fujii model stinv
+    float AF = 1.0 / (1.0 + (0.5 - 2.0/(3.0*PI)) * sigma);                                         // Fujii model A coefficient
+    float BF = sigma * AF;                                                                         // Fujii model B coefficient
+    vec3 f_ss = (rho / PI) * (AF + BF * stinv);                                                    // Fujii single-scattering BRDF
+    float GFo = siO * (safeacos(muO) - siO*muO) + 2.0*((siO/muO)*(1.0 - pow(siO, 3.0)) - siO)/3.0; // GF integral at wo
+    float GFi = siI * (safeacos(muI) - siI*muI) + 2.0*((siI/muI)*(1.0 - pow(siI, 3.0)) - siI)/3.0; // GF integral at wi
+    float EFo = AF + (BF/PI)*GFo;                                                                  // directional albedo EFo
+    float EFi = AF + (BF/PI)*GFi;                                                                  // directional albedo EFi
+    float avgEF = AF + (2.0/3.0 - 28.0/(15.0*PI))*BF;                                              // average albedo avgEF
+    vec3 rho_ms = rho * avgEF / (vec3(1.0) - rho*max(0.0, 1.0 - avgEF));                           // multiple-scattering albedo rho_ms
+    vec3 f_ms = (rho_ms / PI) * max(eps, 1.0 - EFo) * max(eps, 1.0 - EFi) / max(eps, 1.0 - avgEF); // thus multiple-scattering BRDF
+    return muO * (f_ss + f_ms);
 }
 
 
@@ -227,15 +237,15 @@ vec3 diffuse_brdf_eval_implementations(in vec3 woutputL, in vec3 winputL)
         case 1: // ON Qualitative (Mitsuba)
         case 2: // ON Full (Mitsuba)
         {
-            float sigma = base_roughness / sqrt(2.0);
+            float sigma = PI/2.0 * base_roughness;
             if (diffuse_mode == 1) return ON_qualitative(Albedo, sigma, V, L) / NdotL;
             else                   return ON_full(       Albedo, sigma, V, L) / NdotL;
         }
-        case 3: return deon_lambertian_sphere(Albedo,                 V, L) / NdotL;
-        case 4: return fujii_qualitative     (Albedo, base_roughness, V, L) / NdotL;
-        case 5: return fujii_improved        (Albedo, base_roughness, V, L) / NdotL;
-        case 6: return fujii_materialx       (Albedo, base_roughness, V, L) / NdotL;
-        case 7: return chan_unreal_diffuse   (Albedo, base_roughness, V, L) / NdotL;
+        case 3: return deon_lambertian_sphere (Albedo,                 V, L) / NdotL;
+        case 4: return fujii_qualitative      (Albedo, base_roughness, V, L) / NdotL;
+        case 5: return fujii_materialx        (Albedo, base_roughness, V, L) / NdotL;
+        case 6: return chan_unreal_diffuse    (Albedo, base_roughness, V, L) / NdotL;
+        case 7: return fujii_energy_conserving(Albedo, base_roughness, V, L) / NdotL;
     }
 }
 

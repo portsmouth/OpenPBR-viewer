@@ -183,19 +183,18 @@ var subsurface_mode_names = {
     'OpenPBR (weighted average)': 4,
     'SPI / Arnold v1':            5,
     'Arnold v2':                  6,
-    'Uniform scattering':         7,
-    'Interfaced van de Hulst':    8
+    'Uniform scattering':         7
 }
 
 var diffuse_mode_names = {
-    'Lambert':                        0,
-    'ON Qualitative (Mitsuba)':       1,
-    'ON Full (Mitsuba)':              2,
-    'd\'Eon sphere model':            3,
-    'Fujii - Qualitative':            4,
-    'Fujii - Improved':               5,
-    'Fujii - MaterialX':              6,
-    'Chan Diffuse (Unreal)':          7
+    'Lambert':                         0,
+    'ON Qualitative (QON)':            1,
+    'ON Full (Mitsuba)':               2,
+    'd\'Eon sphere model':             3,
+    'Fujii - Qualitative (FON)':       4,
+    'Fujii - MaterialX':               5,
+    'Chan Diffuse (Unreal)':           6,
+    'Fujii - Energy Conserving (EON)': 7
 }
 
 
@@ -1107,7 +1106,7 @@ document.onkeydown = function (event)
         case 80: // P key: save current image to disk
         {
             var link = document.createElement('a');
-            let filename = `openpbr-example-screenshot.png`;
+            let filename = `openpbr-viewer-screenshot.png`;
             link.download = filename;
             renderer.domElement.toBlob(function(blob){
                     link.href = URL.createObjectURL(blob);

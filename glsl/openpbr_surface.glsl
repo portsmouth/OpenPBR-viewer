@@ -308,16 +308,6 @@ void fill_subsurface_medium(inout Volume internal_medium)
             internal_medium.extinction = mu_t;
             break;
         }
-        case 8: // "interfaced van de Hulst"
-        {
-            float K = 1.0 - (1.0 - average_dielectric_fresnel(specular_ior))/sqr(specular_ior);
-            vec3 Ap = A * (1.0 - K) / (1.0 - A*K);
-            s2 = sqr(4.09712 + Ap*4.20863 - sqrt(max(vec3(0.0), 9.59217 + Ap*41.6808 + sqr(Ap)*17.7126)));
-            vec3 mu_t = 1.0 / max(mfp_epsilon, r);
-            internal_medium.extinction = mu_t;
-            break;
-        }
-
     }
     internal_medium.albedo     = (1.0 - s2) / (1.0 - g*s2); // single-scattering albedo accounting for anisotropy
     internal_medium.anisotropy = g;
