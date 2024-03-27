@@ -1,5 +1,15 @@
 #ifdef THIN_FILM_ENABLED
 
+/*
+    Simplified implementation of thin-film Fresnel, based on:
+
+        "A Practical Extension to Microfacet Theory for the Modeling of Varying Iridescence", Belcour & Barla, SIGGRAPH 2017
+
+    Here we ignore the true spectral dependence of the RGB channels,
+    and just do a monochromatic computation for each channel assuming a fixed wavelength.
+    This doesn't match the ground truth, but is a plausible, fast approximation.
+*/
+
 vec2 complex(float a, float b)           { return vec2(a, b); }
 vec2 complex_mul(in vec2 z1, in vec2 z2) { return vec2(z1.x*z2.x - z1.y*z2.y, z1.x*z2.y + z1.y*z2.x); }
 vec2 complex_conj(in vec2 z)             { return complex(z.x, -z.y); }
