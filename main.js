@@ -175,6 +175,11 @@ var progress_finished_timer;
 var LOADED;
 var COMPILING;
 
+var scene_names = {
+    'Standard Shader Ball': 'standard-shader-ball',
+    'Thing':                'thing'
+}
+
 var subsurface_mode_names = {
     'OpenPBR (orig, 3-float)':    0,
     'OpenPBR (luminace)':         1,
@@ -194,8 +199,10 @@ var diffuse_mode_names = {
     'Fujii - Qualitative (FON)':       4,
     'Fujii - MaterialX':               5,
     'Chan Diffuse (Unreal)':           6,
-    'Fujii - Energy Conserving (EON)': 7
+    'Fujii - Energy Conserving (EON)': 7,
+    'Fujii - Energy Conserving (EON, fast approx)': 8
 }
+
 
 
 init();
@@ -445,8 +452,15 @@ function init()
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // initialize the scene and update the material properties with the bvh, materials, etc
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    load_scene('standard-shader-ball');
+}
+
+function load_scene(scene_name)
+{
     const loader = new MeshLoader();
-    loader.load('standard-shader-ball/neutral_objects.gltf').then( () => {
+
+    loader.load(scene_name + '/neutral_objects.gltf').then( () => {
 
         scene.add(loader.result.scene);
         MESH_PROPS = loader.result.mesh;
@@ -469,7 +483,7 @@ function init()
 
         progress_bar.animate(0.75);
         loader.reset();
-        loader.load('standard-shader-ball/shaderball.gltf').then( () => {
+        loader.load(scene_name + '/openpbr_objects.gltf').then( () => {
 
             scene.add(loader.result.scene);
             MESH_SURFACE = loader.result.mesh;
@@ -500,8 +514,7 @@ function init()
 
         } )
 
-    } )
-
+    } );
 }
 
 function reset_camera()
@@ -747,6 +760,9 @@ function post_load_setup()
 
     ///// Renderer folder /////////////////////////////////////
     const renderer_folder = gui.addFolder('Renderer');
+
+    renderer_folder.add(params, 'scenes', scene_names).onChange(                                      v => { console.log(v); resetSamples(); });
+
     renderer_folder.add( params, 'smooth_normals' ).onChange(                                         v => { resetSamples(); });
     renderer_folder.add( params, 'wireframe' ).onChange(                                              v => { resetSamples(); });
     renderer_folder.addColor(params, 'neutral_color').onChange(                                       v => { resetSamples(); });

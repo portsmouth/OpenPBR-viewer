@@ -122,26 +122,75 @@ vec3 fujii_materialx(in vec3 Albedo, float roughness, in vec3 V, in vec3 L)
     return Albedo * NdotL / PI * (A + B * stinv);
 }
 
-vec3 fujii_energy_conserving(in vec3 rho, float sigma, in vec3 wi, in vec3 wo)
+float QON_albedo_fast_approx(float mu, float sigma)
 {
-    float eps = 1.0e-7;
-    float muI = wi.z, siI = max(0.0, sqrt(1.0 - muI * muI));
-    float muO = wo.z, siO = max(0.0, sqrt(1.0 - muO * muO));
-    float s = dot(wi, wo) - muI * muO;
-    float stinv = s > 0.0 ? s / max(muI, muO) : s;                                                 // Fujii model stinv
-    float AF = 1.0 / (1.0 + (0.5 - 2.0/(3.0*PI)) * sigma);                                         // Fujii model A coefficient
-    float BF = sigma * AF;                                                                         // Fujii model B coefficient
-    vec3 f_ss = (rho / PI) * (AF + BF * stinv);                                                    // Fujii single-scattering BRDF
-    float GFo = siO * (safeacos(muO) - siO*muO) + 2.0*((siO/muO)*(1.0 - pow(siO, 3.0)) - siO)/3.0; // GF integral at wo
-    float GFi = siI * (safeacos(muI) - siI*muI) + 2.0*((siI/muI)*(1.0 - pow(siI, 3.0)) - siI)/3.0; // GF integral at wi
-    float EFo = AF + (BF/PI)*GFo;                                                                  // directional albedo EFo
-    float EFi = AF + (BF/PI)*GFi;                                                                  // directional albedo EFi
-    float avgEF = AF + (2.0/3.0 - 28.0/(15.0*PI))*BF;                                              // average albedo avgEF
-    vec3 rho_ms = rho * avgEF / (vec3(1.0) - rho*max(0.0, 1.0 - avgEF));                           // multiple-scattering albedo rho_ms
-    vec3 f_ms = (rho_ms / PI) * max(eps, 1.0 - EFo) * max(eps, 1.0 - EFi) / max(eps, 1.0 - avgEF); // thus multiple-scattering BRDF
-    return muO * (f_ss + f_ms);
+    #define c0_QON ( 0.509943)
+    #define c1_QON (-0.468933)
+    #define c2_QON (-0.221914)
+    #define c3_QON (-0.23749 )
+    #define Gcoeffs_QON mat2(c0_QON, c2_QON, c1_QON, c3_QON)
+    #define GoverPI_QON dot((Gcoeffs_QON*vec2(1,mu))*vec2(1,mu*mu), vec2(1,1))
+    float sigma2 = sqr(sigma);
+    float A = 1.0f - 0.5f  * sigma2/(sigma2 + 0.33f);
+    float B =        0.45f * sigma2/(sigma2 + 0.09f);
+    return A + B*GoverPI_QON;
 }
 
+#define constant1_FON (0.5 - 2.0/(3.0*PI))
+#define constant2_FON (2.0/3.0 - 28.0/(15.0*PI))
+
+// FON directional albedo (analytic)
+float E_FON_analyt(float mu, float sigma)
+{
+    #define safe_acos(x) (acos(clamp(x, -1.0, 1.0)))
+    float AF = 1.0 / (1.0 + constant1_FON*sigma); // Fujii model A coefficient
+    float BF = sigma * AF;                        // Fujii model B coefficient
+    float Si = max(0.0, sqrt(1.0 - mu * mu));
+    float G = Si * (safe_acos(mu) - Si*mu) + 2.0*((Si/mu)*(1.0 - pow(Si, 3.0)) - Si)/3.0;
+    float E = AF + (BF/PI)*G;
+    return E;
+}
+
+// FON directional albedo (approx.)
+float E_FON_approx(float mu, float sigma)
+{
+    #define Gcoeffs_FON mat2(0.287021, -0.17486, -0.306961, 0.193945)
+    #define GoverPI_FON dot((Gcoeffs_FON * vec2(1,mu)) * vec2(1,mu*mu), vec2(1,1))
+    return (1.0 + GoverPI_FON) / (1.0 + constant1_FON*sigma);
+}
+
+// EON directional albedo (approx)
+vec3 E_EON(in vec3 rho, float sigma, in vec3 wi, bool exact)
+{
+    float muI = wi.z;                                    // input angle cos
+    float AF = 1.0 / (1.0 + constant1_FON*sigma);        // Fujii model A coefficient
+    float EF = exact ? E_FON_analyt(muI, sigma) :        // EFi at rho=1 (analytic)
+                       E_FON_approx(muI, sigma);         // EFi at rho=1 (approx)
+    float avgEF = AF * (1.0 + constant2_FON*sigma);      // average albedo
+    vec3 rho_ms = sqr(rho) * avgEF / (vec3(1.0) - rho*max(0.0, 1.0-avgEF));
+    return rho*EF + rho_ms*(1.0 - EF);
+}
+
+// EON BRDF
+vec3 f_EON(in vec3 rho, float sigma, in vec3 wi, in vec3 wo, bool exact)
+{
+    float muI = wi.z;                                    // input angle cos
+    float muO = wo.z;                                    // output angle cos
+    float s = dot(wi, wo) - muI * muO;                   // QON s term
+    float stinv = s > 0.0 ? s / max(muI, muO) : s;       // Fujii model stinv
+    float AF = 1.0 / (1.0 + constant1_FON*sigma);        // Fujii model A coefficient
+    vec3 f_ss = (rho / PI) * AF * (1.0 + sigma*stinv);   // single-scatt. BRDF
+    float EFo = exact ? E_FON_analyt(muO, sigma) :       // EFo at rho=1 (analytic)
+                        E_FON_approx(muO, sigma);        // EFo at rho=1 (approx)
+    float EFi = exact ? E_FON_analyt(muI, sigma) :       // EFi at rho=1 (analytic)
+                        E_FON_approx(muI, sigma);        // EFi at rho=1 (approx)
+    float avgEF = AF * (1.0 + constant2_FON*sigma);      // avg. albedo
+    vec3 rho_ms = sqr(rho) * avgEF / (vec3(1.0) - rho*max(0.0, 1.0-avgEF));
+    vec3 f_ms = (rho_ms / PI) * max(1e-7, 1.0 - EFo) *   // multi-scatter lobe
+                                max(1e-7, 1.0 - EFi) /
+                                max(1e-7, 1.0 - avgEF);
+    return f_ss + f_ms;
+}
 
 ////////////////////////////////////////////////////////////////////////////////////
 // d'Eon Lambertian Microsphere BRDF
@@ -245,7 +294,8 @@ vec3 diffuse_brdf_eval_implementations(in vec3 woutputL, in vec3 winputL)
         case 4: return fujii_qualitative      (Albedo, base_roughness, V, L) / NdotL;
         case 5: return fujii_materialx        (Albedo, base_roughness, V, L) / NdotL;
         case 6: return chan_unreal_diffuse    (Albedo, base_roughness, V, L) / NdotL;
-        case 7: return fujii_energy_conserving(Albedo, base_roughness, V, L) / NdotL;
+        case 7: return f_EON                  (Albedo, base_roughness, V, L, true);
+        case 8: return f_EON                  (Albedo, base_roughness, V, L, false);
     }
 }
 
