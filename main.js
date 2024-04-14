@@ -7,6 +7,7 @@ import { Vector2, Vector3, Matrix4, Box3,
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import Stats from 'stats.js';
 
 import {
@@ -48,25 +49,31 @@ class MeshLoader
         let gltf = await this.loader.loadAsync(path);
         let S = Array.isArray( gltf.scene ) ? gltf.scene : [ gltf.scene ];
         const meshes = [];
-        for ( let i = 0, l = S.length; i < l; i ++ )
+
+        for ( let i = 0, l = S.length; i < l; i++ )
         {
             S[i].traverseVisible( c =>
                 {
                     if (c.isMesh)
                     {
-                        const generator = new StaticGeometryGenerator( c );
-                        generator.attributes = [ 'position', 'color', 'normal', 'tangent', 'uv', 'uv2' ];
-                        generator.applyWorldTransforms = false;
-                        const bvhOptions = { strategy: SAH, maxLeafTris: 1 };
-                        let bvh = new MeshBVH( generator.generate(), bvhOptions );
-                        let mesh = new Mesh(generator.generate(), c.material);
-                        this.result = {scene:gltf.scene, bvh:bvh, mesh:c};
-                        console.log("==> loaded mesh ", path);
-                        return this.result;
+                        meshes.push(c);
                     }
                 }
             )
         }
+
+        if (meshes.length > 0)
+        {
+            const generator = new StaticGeometryGenerator(meshes);
+            generator.attributes = [ 'position', 'color', 'normal', 'tangent', 'uv', 'uv2' ];
+            generator.applyWorldTransforms = false;
+            let merged_mesh = new Mesh(generator.generate(), new MeshBasicMaterial());
+
+            let bvh = new MeshBVH( merged_mesh.geometry, { strategy: SAH, maxLeafTris: 1 } );
+            this.result = {scene:gltf.scene, bvh:bvh, mesh:merged_mesh};
+            console.log("==> loaded mesh ", path);
+        }
+
         return this.result;
     }
 }
@@ -83,11 +90,12 @@ const params =
     // renderer params
     //////////////////////////////////////////////////////
 
+    scene_name:                         'standard-shader-ball',
 	smooth_normals:                     true,
     bounces:                            6,
     max_samples:                        1024,
     max_volume_steps:                   8,
-    wireframe:                          true,
+    wireframe:                          false,
     neutral_color:                      [0.5, 0.5, 0.5],
 
     //////////////////////////////////////////////////////
@@ -110,7 +118,7 @@ const params =
     base_color:                          [0.8, 0.8, 0.8],
     base_roughness:                      0.0,
     base_metalness:                      0.0,
-    diffuse_mode:                        1, // FOR TESTING
+    diffuse_mode:                        6, // FOR TESTING
 
     specular_weight:                     1.0,
     specular_color:                      [1.0, 1.0, 1.0],
@@ -156,7 +164,7 @@ const params =
     geometry_opacity:                    1.0,
     geometry_thin_walled:                false,
 
-    reset_camera:                        function() { reset_camera(); }
+    reset_camera:                        function() { reset_camera(params.scene_name); }
 
 };
 
@@ -177,7 +185,9 @@ var COMPILING;
 
 var scene_names = {
     'Standard Shader Ball': 'standard-shader-ball',
-    'Thing':                'thing'
+    'Glavius':              'glavius',
+    'Terrain':              'terrain',
+    'Bearded Man':          'bearded-man'
 }
 
 var subsurface_mode_names = {
@@ -192,18 +202,18 @@ var subsurface_mode_names = {
 }
 
 var diffuse_mode_names = {
-    'Lambert':                         0,
-    'ON Qualitative (QON)':            1,
-    'ON Full (Mitsuba)':               2,
-    'd\'Eon sphere model':             3,
-    'Fujii - Qualitative (FON)':       4,
-    'Fujii - MaterialX':               5,
-    'Chan Diffuse (Unreal)':           6,
-    'Fujii - Energy Conserving (EON)': 7,
-    'Fujii - Energy Conserving (EON, fast approx)': 8
+    'Lambert':                                          0,
+    'ON Full (Mitsuba)':                                1,
+    'ON Qualitative (QON)':                             2,
+    'ON Qualitative - Energy Conserving (EQON exact)':  3,
+    'ON Qualitative - Energy Conserving (EQON approx)': 4,
+    'Fujii - Qualitative (FON)':                        5,
+    'Fujii - Energy Conserving (EFON exact)':           6,
+    'Fujii - Energy Conserving (EFON approx)':          7,
+    'Fujii - MaterialX':                                8,
+    'Chan Diffuse (Unreal)':                            9,
+    'd\'Eon sphere model':                              10
 }
-
-
 
 init();
 render();
@@ -220,6 +230,20 @@ function updateSunDir()
     let z = sintheta * sinphi;
     let y = costheta;
     params.sunDir = [x, y, z];
+}
+
+function init_three_scene()
+{
+	// dummy scene setup
+	scene = new Scene();
+
+    // dummy light for preview while shaders compiling
+	const light = new DirectionalLight( 0xffffff, 1 );
+	light.position.set( 1, 1, 1 );
+	scene.add( light );
+	scene.add( new AmbientLight( 0xb0bec5, 0.5 ) );
+
+    return scene;
 }
 
 function init()
@@ -279,14 +303,8 @@ function init()
 	renderer.outputEncoding = sRGBEncoding;
 	document.body.appendChild( renderer.domElement );
 
-	// scene setup
-	scene = new Scene();
-
-    // dummy light for preview while shaders compiling
-	const light = new DirectionalLight( 0xffffff, 1 );
-	light.position.set( 1, 1, 1 );
-	scene.add( light );
-	scene.add( new AmbientLight( 0xb0bec5, 0.5 ) );
+    // dummy three.js scene
+    scene = init_three_scene();
 
     // stats setup
 	stats = new Stats();
@@ -446,8 +464,6 @@ function init()
 
     } );
 
-    progress_bar.setText('loading meshes...');
-    progress_bar.animate(0.5);
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // initialize the scene and update the material properties with the bvh, materials, etc
@@ -459,6 +475,14 @@ function init()
 function load_scene(scene_name)
 {
     const loader = new MeshLoader();
+
+    // @todo:
+    //  - clear current THREE.js scene
+
+    LOADED = false;
+
+    progress_bar.setText('loading meshes...');
+    progress_bar.animate(0.0);
 
     loader.load(scene_name + '/neutral_objects.gltf').then( () => {
 
@@ -481,7 +505,7 @@ function load_scene(scene_name)
         console.log("  has_normals_scene:  ", rtMaterial.uniforms.has_normals_props);
         console.log("  has_tangents_scene: ", rtMaterial.uniforms.has_tangents_props);
 
-        progress_bar.animate(0.75);
+        progress_bar.animate(0.5);
         loader.reset();
         loader.load(scene_name + '/openpbr_objects.gltf').then( () => {
 
@@ -517,7 +541,7 @@ function load_scene(scene_name)
     } );
 }
 
-function reset_camera()
+function reset_camera(scene_name)
 {
     // Set camera default orientation according to the Standard Shader Ball USD asset description.
     let camera_fov = 23.6701655;
@@ -528,10 +552,37 @@ function reset_camera()
     orbitControls = new OrbitControls( camera, renderer.domElement );
     orbitControls.addEventListener( 'change', () => { resetSamples(); } );
     let matrixWorld = new Matrix4();
-    matrixWorld.set( 0.9396926207859084,                  0, -0.3420201433256687, 0,
-                    -0.2203032561704394, 0.7649214009184319, -0.6052782217606094, 0,
-                    0.26161852717499334, 0.6441236297613865,  0.7187909959242699, 0,
-                      6.531538924716362,               19.5,  17.948521838355774, 1 );
+
+    if (scene_name == 'standard-shader-ball')
+    {
+        matrixWorld.set( 0.9396926207859084,                  0, -0.3420201433256687, 0,
+                        -0.2203032561704394, 0.7649214009184319, -0.6052782217606094, 0,
+                        0.26161852717499334, 0.6441236297613865,  0.7187909959242699, 0,
+                        6.531538924716362,               19.5,  17.948521838355774, 1 );
+    }
+    else if (scene_name == 'glavius')
+    {
+        matrixWorld.set( 0.4848291963218869, -6.938893903907228e-18, -0.8746088556571293,   0,
+                        -0.07533009256065425, 0.9962839037303908,    -0.041758356319859954, 0,
+                         0.8713587249512548,  0.08613003638530015,    0.4830275243540376,   0,
+                        23.076273094000275,   6.7653774216248,        14.822630983786677,   1);
+
+    }
+    else if (scene_name == 'terrain')
+    {
+        matrixWorld.set( 0.7242953632536803, -1.1102230246251565e-16, -0.6894898307946385, 0,
+                        -0.4511571209928634,  0.7562050657737049,     -0.4739315886028461, 0,
+                         0.5213957028463604,  0.6543346991396579,      0.5477158228088388, 0,
+                         8.561709328489492,  11.460860759783042,       8.95672568146927,   1);
+    }
+    else if (scene_name == 'bearded-man')
+    {
+        matrixWorld.set(0.6586894440882616, -1.3877787807814457e-17, 0.752414922929295,   0,
+                        0.13367205033823076, 0.9840924050751759,    -0.11702102901499911, 0,
+                       -0.7404458111199431,  0.17765736200156684,    0.648211279230448,   0,
+                      -20.089277049402824,   9.131027464916848,     18.02162149148976,    1);
+    }
+
     matrixWorld.transpose();
     camera.matrixAutoUpdate = false;
     camera.applyMatrix4(matrixWorld);
@@ -612,7 +663,7 @@ function post_load_setup()
     // Setup camera
     //////////////////////////////////////////////////////////
 
-    reset_camera();
+    reset_camera(params.scene_name);
 
     //////////////////////////////////////////////////////////
     // Setup GUI
@@ -761,7 +812,9 @@ function post_load_setup()
     ///// Renderer folder /////////////////////////////////////
     const renderer_folder = gui.addFolder('Renderer');
 
-    renderer_folder.add(params, 'scenes', scene_names).onChange(                                      v => { console.log(v); resetSamples(); });
+    renderer_folder.add(params, 'scene_name', scene_names).onChange(                                  v => { console.log(v);
+                                                                                                             load_scene(v);
+                                                                                                             resetSamples(); });
 
     renderer_folder.add( params, 'smooth_normals' ).onChange(                                         v => { resetSamples(); });
     renderer_folder.add( params, 'wireframe' ).onChange(                                              v => { resetSamples(); });
@@ -1037,7 +1090,7 @@ document.onkeydown = function (event)
         }
         case 70: // F key: reset cam
         {
-            reset_camera();
+            reset_camera(params.scene_name);
             break;
         }
         case 72: // H key: toggle hide/show gui
