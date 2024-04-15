@@ -484,7 +484,7 @@ function load_scene(scene_name)
     progress_bar.setText('loading meshes...');
     progress_bar.animate(0.0);
 
-    loader.load(scene_name + '/neutral_objects.gltf').then( () => {
+    loader.load(scene_name + '/neutral_objects.glb').then( () => {
 
         scene.add(loader.result.scene);
         MESH_PROPS = loader.result.mesh;
@@ -507,7 +507,7 @@ function load_scene(scene_name)
 
         progress_bar.animate(0.5);
         loader.reset();
-        loader.load(scene_name + '/openpbr_objects.gltf').then( () => {
+        loader.load(scene_name + '/openpbr_objects.glb').then( () => {
 
             scene.add(loader.result.scene);
             MESH_SURFACE = loader.result.mesh;
