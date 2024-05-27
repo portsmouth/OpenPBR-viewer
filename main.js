@@ -215,6 +215,22 @@ var diffuse_mode_names = {
     'd\'Eon sphere model':                              10
 }
 
+var diffuse_mode_names = {
+    'Lambert':                                                0,
+    'ON Full (Mitsuba)':                                      1,
+    'ON Qualitative (QON)':                                   2,
+    'ON Qualitative - Energy Conserving (EQON exact)':        3,
+    'ON Qualitative - Energy Conserving (EQON approx)':       4,
+    'Fujii - Qualitative (FON)':                              5,
+    'Fujii - Energy Conserving (EFON exact)':                 6,
+    'Fujii - Energy Conserving (EFON approx)':                7,
+    'Fujii - Energy Conserving (EFON exact, LTC sampling)':   8,
+    'Fujii - Energy Conserving (EFON approx, LTC sampling)':  9,
+    'Fujii - MaterialX':                                      10,
+    'Chan Diffuse (Unreal)':                                  11,
+    'd\'Eon sphere model':                                    12
+}
+
 init();
 render();
 
