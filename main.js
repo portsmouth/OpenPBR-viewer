@@ -185,7 +185,7 @@ var COMPILING;
 
 var scene_names = {
     'Standard Shader Ball': 'standard-shader-ball',
-    'Glavius':              'glavius',
+    'Glavenus':             'glavenus',
     'Terrain':              'terrain',
     'Bearded Man':          'bearded-man'
 }
@@ -562,7 +562,7 @@ function reset_camera(scene_name)
                         0.26161852717499334, 0.6441236297613865,  0.7187909959242699, 0,
                         6.531538924716362,               19.5,  17.948521838355774, 1 );
     }
-    else if (scene_name == 'glavius')
+    else if (scene_name == 'glavenus')
     {
         matrixWorld.set( 0.4848291963218869, -6.938893903907228e-18, -0.8746088556571293,   0,
                         -0.07533009256065425, 0.9962839037303908,    -0.041758356319859954, 0,
