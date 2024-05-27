@@ -118,7 +118,7 @@ const params =
     base_color:                          [0.8, 0.8, 0.8],
     base_roughness:                      0.0,
     base_metalness:                      0.0,
-    diffuse_mode:                        6, // FOR TESTING
+    diffuse_mode:                        8,
 
     specular_weight:                     1.0,
     specular_color:                      [1.0, 1.0, 1.0],
@@ -199,20 +199,6 @@ var subsurface_mode_names = {
     'SPI / Arnold v1':            5,
     'Arnold v2':                  6,
     'Uniform scattering':         7
-}
-
-var diffuse_mode_names = {
-    'Lambert':                                          0,
-    'ON Full (Mitsuba)':                                1,
-    'ON Qualitative (QON)':                             2,
-    'ON Qualitative - Energy Conserving (EQON exact)':  3,
-    'ON Qualitative - Energy Conserving (EQON approx)': 4,
-    'Fujii - Qualitative (FON)':                        5,
-    'Fujii - Energy Conserving (EFON exact)':           6,
-    'Fujii - Energy Conserving (EFON approx)':          7,
-    'Fujii - MaterialX':                                8,
-    'Chan Diffuse (Unreal)':                            9,
-    'd\'Eon sphere model':                              10
 }
 
 var diffuse_mode_names = {
@@ -485,7 +471,7 @@ function init()
     // initialize the scene and update the material properties with the bvh, materials, etc
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    load_scene('standard-shader-ball');
+    load_scene(params.scene_name);
 }
 
 function load_scene(scene_name)
@@ -559,7 +545,6 @@ function load_scene(scene_name)
 
 function reset_camera(scene_name)
 {
-    // Set camera default orientation according to the Standard Shader Ball USD asset description.
     let camera_fov = 23.6701655;
     let camera_near = 0.01;
     let camera_far = 1000.0;
@@ -571,6 +556,7 @@ function reset_camera(scene_name)
 
     if (scene_name == 'standard-shader-ball')
     {
+        // Set camera default orientation according to the Standard Shader Ball USD asset description:
         matrixWorld.set( 0.9396926207859084,                  0, -0.3420201433256687, 0,
                         -0.2203032561704394, 0.7649214009184319, -0.6052782217606094, 0,
                         0.26161852717499334, 0.6441236297613865,  0.7187909959242699, 0,

@@ -169,9 +169,9 @@ vec3 fujii_materialx(in vec3 Albedo, float roughness, in vec3 V, in vec3 L)
 
 void ltc_coeffs(in vec3 wo, float r, inout float a, inout float b)
 {
-    float sinO = sqrt(1.0 - wo.z*wo.z);  // for LTC elements
-    a = r*pow(sinO, 50.0)*0.5 + 1.0;     // LTC M element a
-    b = r*pow(sinO, 4.0)*sqrt(wo.z);     // LTC M element b
+    float sinO = sqrt(max(0.0, 1.0 - wo.z*wo.z));  // for LTC elements
+    a = r*pow(sinO, 50.0)*0.5 + 1.0;               // LTC M element a
+    b = r*pow(sinO, 4.0)*sqrt(max(0.0, wo.z));     // LTC M element b
 }
 
 vec3 ltc_space(in vec3 wo, in vec3 w, bool to)
@@ -198,7 +198,7 @@ float pdf_EON(in vec3 wo, in vec3 wi, float r)
     wh /= l_MIwl;                                   // normalize wh
     float J = aI*aI / (l_MIwl*l_MIwl*l_MIwl);       // |M^-1| / |M^-1 wl|^3
     float pdf_h = wh.z / PI;                        // wh sample PDF
-    return max(PDF_EPSILON, pdf_h * J);             // wi sample PDF
+    return pdf_h * J;                               // wi sample PDF
 }
 
 vec4 sample_cosine_lobe(inout uint rndSeed)
@@ -223,7 +223,7 @@ vec4 sample_EON(in vec3 wo, float r, inout uint rndSeed)
     float l_Mwh = length(wl);                    // |M wh| = 1/|M^-1 wl|
     wl /= l_Mwh;                                 // normalize wl
     float J = (l_Mwh*l_Mwh*l_Mwh) / (a*a);       // |M^-1| / |M^-1 wl|^3
-    float pdf_i = max(PDF_EPSILON, pdf_h * J);   // wi sample PDF
+    float pdf_i = pdf_h * J;                     // wi sample PDF
     vec3 wi = ltc_space(wo, wl, false);          // transform wi -> wl
     return vec4(wi, pdf_i);
 }
