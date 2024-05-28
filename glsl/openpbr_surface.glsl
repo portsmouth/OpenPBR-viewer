@@ -58,7 +58,7 @@ void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
 
     ///////////////////////////// Compute albedos /////////////////////////////
 
-    //bool fuzzed             = (fuzz_weight > 0.0);
+    bool fuzzed             = (F > 0.0);
     bool coated             = (C > 0.0);
     bool metallic           = (M > 0.0);
     bool fully_metallic     = (M == 1.0);
@@ -67,7 +67,7 @@ void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     bool subsurfaced        = (S > 0.0);
     bool fully_subsurfaced  = (S == 1.0);
 
-    //albedos.m[ID_FUZZ_BRDF] = fuzzed                                                     ? fuzz_brdf_albedo(pW, basis, winputL, rndSeed)     : vec3(0.0);
+    albedos.m[ID_FUZZ_BRDF] = fuzzed                                                       ? fuzz_brdf_albedo(pW, basis, winputL, rndSeed)     : vec3(0.0);
     albedos.m[ID_COAT_BRDF] = coated                                                       ? coat_brdf_albedo(pW, basis, winputL, rndSeed)     : vec3(0.0);
     albedos.m[ID_META_BRDF] = metallic                                                     ? metal_brdf_albedo(pW, basis, winputL, rndSeed)    : vec3(0.0);
     albedos.m[ID_SPEC_BRDF] = !fully_metallic                                              ? specular_brdf_albedo(pW, basis, winputL, rndSeed) : vec3(0.0);
@@ -78,10 +78,10 @@ void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     ///////////////////////////// Construct lobe weights /////////////////////////////
 
     // Fuzz BRDF
-    weights.m[ID_FUZZ_BRDF] = vec3(0.0); // F;
+    weights.m[ID_FUZZ_BRDF] = vec3(F);
 
     // Coated base //////////////////////
-    vec3 w_coated_base = vec3(1.0); //mix(vec3(1.0), vec3(1.0) - albedos.m[ID_FUZZ_BRDF], F);
+    vec3 w_coated_base = mix(vec3(1.0), vec3(1.0) - albedos.m[ID_FUZZ_BRDF], F);
 
     // Coat BRDF
     weights.m[ID_COAT_BRDF] = w_coated_base * C;
@@ -173,7 +173,7 @@ vec3 openpbr_bsdf_evaluate_lobes(in vec3 pW, in Basis basis, in vec3 winputL, in
                                  in int skip_lobe_id, inout LobePDFs pdfs)
 {
     vec3 f = vec3(0.0);
-    if (skip_lobe_id != ID_FUZZ_BRDF && lobe_probs.m[ID_FUZZ_BRDF] > 0.0) f += vec3(0.0);
+    if (skip_lobe_id != ID_FUZZ_BRDF && lobe_probs.m[ID_FUZZ_BRDF] > 0.0) f += lobe_weights.m[ID_FUZZ_BRDF] *     fuzz_brdf_evaluate(pW, basis, winputL, woutputL, pdfs.m[ID_FUZZ_BRDF]);
     if (skip_lobe_id != ID_COAT_BRDF && lobe_probs.m[ID_COAT_BRDF] > 0.0) f += lobe_weights.m[ID_COAT_BRDF] *     coat_brdf_evaluate(pW, basis, winputL, woutputL, pdfs.m[ID_COAT_BRDF]);
     if (skip_lobe_id != ID_META_BRDF && lobe_probs.m[ID_META_BRDF] > 0.0) f += lobe_weights.m[ID_META_BRDF] *    metal_brdf_evaluate(pW, basis, winputL, woutputL, pdfs.m[ID_META_BRDF]);
     if (skip_lobe_id != ID_SPEC_BRDF && lobe_probs.m[ID_SPEC_BRDF] > 0.0) f += lobe_weights.m[ID_SPEC_BRDF] * specular_brdf_evaluate(pW, basis, winputL, woutputL, pdfs.m[ID_SPEC_BRDF]);
@@ -330,7 +330,7 @@ vec3 openpbr_bsdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint
             // Sample this lobe for the output direction woutputL, and corresponding (f_lobe, pdf_lobe)
             float pdf_lobe;
             vec3 f_lobe;
-            if      (lobe_id==ID_FUZZ_BRDF) {}
+            if      (lobe_id==ID_FUZZ_BRDF) { f_lobe =     fuzz_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_lobe); }
             else if (lobe_id==ID_COAT_BRDF) { f_lobe =     coat_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_lobe); }
             else if (lobe_id==ID_META_BRDF) { f_lobe =    metal_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_lobe); }
             else if (lobe_id==ID_SPEC_BRDF) { f_lobe = specular_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_lobe); }
