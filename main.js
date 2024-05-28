@@ -18,6 +18,7 @@ import {
 import { GUI } from 'lil-gui';
 
 import glsl_main            from './glsl/main.glsl?raw'
+import glsl_fuzz_brdf       from './glsl/fuzz_brdf.glsl?raw'
 import glsl_coat_brdf       from './glsl/coat_brdf.glsl?raw'
 import glsl_thin_film       from './glsl/thin-film.glsl?raw'
 import glsl_metal_brdf      from './glsl/metal_brdf.glsl?raw'
@@ -455,6 +456,7 @@ function init()
                          ${ shaderIntersectFunction }
                         `
                         + glsl_main
+                        + glsl_fuzz_brdf
                         + glsl_coat_brdf
                         + glsl_thin_film
                         + glsl_specular_brdf
