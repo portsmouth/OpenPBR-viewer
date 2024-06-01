@@ -11,6 +11,7 @@ float square(float x)
 // Gaussian fit to directional albedo table.
 float zeltner_sheen_dir_albedo(float x, float y)
 {
+    y = clamp(y, 0.01, 1.0); // Clamp to the roughness range of the original implementation.
     float s = y*(0.0206607 + 1.58491*y)/(0.0379424 + y*(1.32227 + y));
     float m = y*(-0.193854 + y*(-1.14885 + y*(1.7932 - 0.95943*y*y)))/(0.046391 + y);
     float o = y*(0.000654023 + (-0.0207818 + 0.119681*y)*y)/(1.26264 + y*(-1.92021 + y));
@@ -24,6 +25,7 @@ float zeltner_sheen_ltc_aInv(float x, float y)
 }
 float zeltner_sheen_ltc_bInv(float x, float y)
 {
+    x = min(x, 1.0); // Guard against NdotV being fractionally > 1.
     return sqrt(1.0 - x)*(y - 1.0)*y*y*y/(0.0000254053 + 1.71228*x - 1.71506*x*y + 1.34174*y*y);
 }
 
