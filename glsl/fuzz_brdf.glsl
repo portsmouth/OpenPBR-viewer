@@ -45,17 +45,25 @@ vec3 fuzz_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
     float roughness = clamp(fuzz_roughness, 0.01, 1.0); // Clamp to the range of the original impl.
 
     mat3 toLTC = transpose(orthonormal_basis_ltc(winputL));
-    vec3 wo = toLTC * woutputL;
+    vec3 w = toLTC * woutputL;
 
     float aInv = zeltner_sheen_ltc_aInv(NdotV, roughness);
     float bInv = zeltner_sheen_ltc_bInv(NdotV, roughness);
 
-    vec3 woOrig = vec3(aInv*wo.x + bInv*wo.z, aInv * wo.y, wo.z);
-    float lenSqr = dot(woOrig, woOrig);
+    // Transform w to original configuration (clamped cosine).
+    //                 |aInv    0 bInv|
+    // wo = M^-1 . w = |   0 aInv    0| . w
+    //                 |   0    0    1|
+    vec3 wo = vec3(aInv*w.x + bInv*w.z, aInv * w.y, w.z);
+    float lenSqr = dot(wo, wo);
 
-    float det = aInv * aInv;
-    float jacobian = det / square(lenSqr);
-    pdf_woutputL = jacobian * max(woOrig.z, 0.0) * RECIPROCAL_PI;
+    // D(w) = Do(M^-1.w / ||M^-1.w||) . |M^-1| / ||M^-1.w||^3
+    //      = Do(M^-1.w) . |M^-1| / ||M^-1.w||^4
+    //      = Do(wo) . |M^-1| / dot(wo, wo)^2
+    //      = Do(wo) . aInv^2 / dot(wo, wo)^2
+    //      = Do(wo) . (aInv / dot(wo, wo))^2
+    float jacobian = square(aInv / lenSqr);
+    pdf_woutputL = max(wo.z, 0.0) * RECIPROCAL_PI * jacobian;
 
     float albedo = zeltner_sheen_dir_albedo(NdotV, roughness);
 
@@ -72,26 +80,34 @@ vec3 fuzz_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rn
     float roughness = clamp(fuzz_roughness, 0.01, 1.0); // Clamp to the range of the original impl.
 
     float pdf_unused;
-    vec3 woOrig = sampleHemisphereCosineWeighted(rndSeed, pdf_unused);
+    vec3 wo = sampleHemisphereCosineWeighted(rndSeed, pdf_unused);
 
     float aInv = zeltner_sheen_ltc_aInv(NdotV, roughness);
     float bInv = zeltner_sheen_ltc_bInv(NdotV, roughness);
 
-    vec3 wo = vec3(woOrig.x/aInv - woOrig.z*bInv/aInv, woOrig.y / aInv, woOrig.z);
+    // Transform wo from original configuration (clamped cosine).
+    //              |1/aInv      0 -bInv/aInv|
+    // w = M . wo = |     0 1/aInv          0| . wo
+    //              |     0      0          1|
+    vec3 w = vec3(wo.x/aInv - wo.z*bInv/aInv, wo.y / aInv, wo.z);
+
+    float lenSqr = dot(w, w);
+    w *= inversesqrt(lenSqr);
+
+    // D(w) = Do(wo) . ||M.wo||^3 / |M|
+    //      = Do(wo / ||M.wo||) . ||M.wo||^4 / |M|
+    //      = Do(w) . ||M.wo||^4 / |M| (possible because M doesn't change z component)
+    //      = Do(w) . dot(w, w)^2 * aInv^2
+    //      = Do(w) . (aInv * dot(w, w))^2
+    float jacobian = square(aInv * lenSqr);
+    pdf_woutputL = max(w.z, 0.0) * RECIPROCAL_PI * jacobian;
 
     mat3 fromLTC = orthonormal_basis_ltc(winputL);
-    woutputL = fromLTC * wo;
-
-    float lenSqr = dot(woutputL, woutputL);
-    woutputL *= inversesqrt(lenSqr);
-
-    float det = aInv * aInv;
-    float jacobian = det * square(lenSqr);
-    pdf_woutputL = jacobian * max(woutputL.z, 0.0) * RECIPROCAL_PI;
+    woutputL = fromLTC * w;
 
     float albedo = zeltner_sheen_dir_albedo(NdotV, roughness);
 
-    return fuzz_color * albedo * jacobian * RECIPROCAL_PI; // NdotL cancelled.
+    return fuzz_color * albedo * RECIPROCAL_PI * jacobian; // NdotL cancelled.
 }
 
 vec3 fuzz_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed)
