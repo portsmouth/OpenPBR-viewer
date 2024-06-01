@@ -85,7 +85,7 @@ vec3 fuzz_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rn
     float jacobian = det * square(lenSqr);
     pdf_woutputL = jacobian * max(woutputL.z, 0.0) * RECIPROCAL_PI;
 
-    float albedo = zeltner_sheen_dir_albedo(winputL.z, fuzz_roughness);        
+    float albedo = zeltner_sheen_dir_albedo(winputL.z, fuzz_roughness);
 
     return fuzz_color * albedo * jacobian * RECIPROCAL_PI; // NdotL cancelled.
 }
