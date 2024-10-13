@@ -99,86 +99,85 @@ return new Vector3(array[0], array[1], array[2]);
 
 const params =
 {
+    //////////////////////////////////////////////////////
+    // renderer params
+    //////////////////////////////////////////////////////
 
-//////////////////////////////////////////////////////
-// renderer params
-//////////////////////////////////////////////////////
+    scene_name:                         'standard-shader-ball',
+    smooth_normals:                     true,
+    bounces:                            2,
+    max_samples:                        1024,
+    max_volume_steps:                   8,
+    wireframe:                          false,
+    neutral_color:                      [0.5, 0.5, 0.5],
 
-scene_name:                         'standard-shader-ball',
-smooth_normals:                     true,
-bounces:                            2,
-max_samples:                        1024,
-max_volume_steps:                   8,
-wireframe:                          false,
-neutral_color:                      [0.5, 0.5, 0.5],
+    //////////////////////////////////////////////////////
+    // lighting params
+    //////////////////////////////////////////////////////
 
-//////////////////////////////////////////////////////
-// lighting params
-//////////////////////////////////////////////////////
+    skyPower:                            0.5,
+    skyColor:                            [0.8, 0.8, 1.0],
+    sunPower:                            0.35,
+    sunAngularSize:                      0.05,
+    sunLatitude:                         40.0,
+    sunLongitude:                        315.0,
+    sunColor:                            [1.0, 1.0, 0.8],
 
-skyPower:                            0.5,
-skyColor:                            [0.8, 0.8, 1.0],
-sunPower:                            0.35,
-sunAngularSize:                      0.05,
-sunLatitude:                         40.0,
-sunLongitude:                        315.0,
-sunColor:                            [1.0, 1.0, 0.8],
+    //////////////////////////////////////////////////////
+    // OpenPBR surface params
+    //////////////////////////////////////////////////////
 
-//////////////////////////////////////////////////////
-// OpenPBR surface params
-//////////////////////////////////////////////////////
+    base_weight:                         1.0,
+    base_color:                          [0.8, 0.8, 0.8],
+    base_roughness:                      0.0,
+    base_metalness:                      0.0,
+    diffuse_mode:                        8,
 
-base_weight:                         1.0,
-base_color:                          [0.8, 0.8, 0.8],
-base_roughness:                      0.0,
-base_metalness:                      0.0,
-diffuse_mode:                        8,
+    specular_weight:                     1.0,
+    specular_color:                      [1.0, 1.0, 1.0],
+    specular_roughness:                  0.1,
+    specular_anisotropy:                 0.0,
+    specular_rotation:                   0.0,
+    specular_ior:                        1.6,
 
-specular_weight:                     1.0,
-specular_color:                      [1.0, 1.0, 1.0],
-specular_roughness:                  0.1,
-specular_anisotropy:                 0.0,
-specular_rotation:                   0.0,
-specular_ior:                        1.6,
+    transmission_weight:                 0.0,
+    transmission_color:                  [1.0, 1.0, 1.0],
+    transmission_depth:                  0.0,
+    transmission_scatter:                [0.0, 0.0, 0.0],
+    transmission_scatter_anisotropy:     0.0,
+    transmission_dispersion_abbe_number: 20.0,
+    transmission_dispersion_scale:       0.0,
 
-transmission_weight:                 0.0,
-transmission_color:                  [1.0, 1.0, 1.0],
-transmission_depth:                  0.0,
-transmission_scatter:                [0.0, 0.0, 0.0],
-transmission_scatter_anisotropy:     0.0,
-transmission_dispersion_abbe_number: 20.0,
-transmission_dispersion_scale:       0.0,
+    subsurface_weight:                   0.0,
+    subsurface_color:                    [0.8, 0.8, 0.8],
+    subsurface_radius:                   0.2,
+    subsurface_radius_scale:             [1.0, 0.5, 0.25],
+    subsurface_anisotropy:               0.0,
+    subsurface_mode:                     0, // FOR TESTING
 
-subsurface_weight:                   0.0,
-subsurface_color:                    [0.8, 0.8, 0.8],
-subsurface_radius:                   0.2,
-subsurface_radius_scale:             [1.0, 0.5, 0.25],
-subsurface_anisotropy:               0.0,
-subsurface_mode:                     0, // FOR TESTING
+    coat_weight:                         0.0,
+    coat_color:                          [1.0, 1.0, 1.0],
+    coat_roughness:                      0.0,
+    coat_anisotropy:                     0.0,
+    coat_rotation:                       0.0,
+    coat_ior:                            1.3,
+    coat_darkening:                      1.0,
 
-coat_weight:                         0.0,
-coat_color:                          [1.0, 1.0, 1.0],
-coat_roughness:                      0.0,
-coat_anisotropy:                     0.0,
-coat_rotation:                       0.0,
-coat_ior:                            1.3,
-coat_darkening:                      1.0,
+    fuzz_weight:                         0.0,
+    fuzz_color:                          [1.0, 1.0, 1.0],
+    fuzz_roughness:                      0.5,
 
-fuzz_weight:                         0.0,
-fuzz_color:                          [1.0, 1.0, 1.0],
-fuzz_roughness:                      0.5,
+    emission_luminance:                  0.0,
+    emission_color:                      [1.0, 1.0, 1.0],
 
-emission_luminance:                  0.0,
-emission_color:                      [1.0, 1.0, 1.0],
+    thin_film_weight:                    0.0,
+    thin_film_thickness:                 1000.0,
+    thin_film_ior:                       1.4,
 
-thin_film_weight:                    0.0,
-thin_film_thickness:                 1000.0,
-thin_film_ior:                       1.4,
+    geometry_opacity:                    1.0,
+    geometry_thin_walled:                false,
 
-geometry_opacity:                    1.0,
-geometry_thin_walled:                false,
-
-reset_camera:                        function() { reset_camera(params.scene_name); }
+    reset_camera:                        function() { reset_camera(params.scene_name); }
 
 };
 
@@ -254,385 +253,385 @@ params.sunDir = [x, y, z];
 
 function init()
 {
-// Setup progress bar spinner
-progress_bar = new Circle('#progress_overlay',
-{
-   color: 'rgba(255, 128, 64, 0.75)',
-   strokeWidth: 5.0,
-   trailColor: 'rgba(255, 128, 64, 0.333)',
-   trailWidth: 3.0,
-   svgStyle: {
-       display: 'block',
-       width: '100%'
-   },
-   text: {
-       value: '',
-       className: 'progressbar__label',
-       style: {
-           color: 'rgba(169, 85, 42, 1.0)',
-           position: 'absolute',
-           fontWeight: 'bold',
-           left: '50%',
-           top: '50%',
-           padding: 0,
-           margin: 0,
-           transform: {
-               prefix: true,
-               value: 'translate(-50%, -50%)'
-           }
-       },
-       autoStyleContainer: true,
-       alignToBottom: true
-   },
-   fill: null,
-   duration: 2000.0,
-   easing: 'linear',
-   from: { color: 'rgba( 0,   0,  0, 0.0)' },
-   to: {   color: 'rgba(32, 255, 32, 1.0)' },
-   warnings: true
-});
-progress_bar.set(0.0);
-progress_bar.setText('');
-
-LOADED = false;
-MESH_SURFACE = null;
-MESH_PROPS = null;
-
-BVH_SURFACE = null;
-BVH_PROPS = null;
-
-// renderer setup
-renderer = new WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
-renderer.setPixelRatio( window.devicePixelRatio );
-renderer.setClearColor( 0x09141a );
-renderer.setSize( window.innerWidth, window.innerHeight );
-renderer.outputColorSpace = LinearSRGBColorSpace;
-renderer.shadowMap.enabled = true;
-renderer.shadowMapSoft = true;
-renderer.shadowMap.type = PCFSoftShadowMap; // default THREE.PCFShadowMap
-renderer.physicallyBasedShading = true;
-
-document.body.appendChild( renderer.domElement );
-
-PATHTRACING = false;
-
-// stats setup
-stats = new Stats();
-document.body.appendChild( stats.dom );
-
-// Samples count text
-let samples_txt = document.getElementById('samples');
-samples_txt.style.visibility = 'visible';
-
-// Info text
-let info_txt = document.getElementById('info');
-info_txt.style.visibility = 'visible';
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// OpenPBR surface params
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-openpbrMaterial = new ShaderMaterial( {
-
-   defines:
-   {
-
-   },
-
-   uniforms: UniformsUtils.merge( [
-
-       UniformsUtils.clone(ShaderLib.phong.uniforms),
-       {
-           cameraWorldMatrix:     { value: new Matrix4() },
-           invProjectionMatrix:   { value: new Matrix4() },
-           invModelMatrix:        { value: new Matrix4() },
-           resolution:            { value: new Vector2() },
-           samples:               { value: 0 },
-           accumulation_weight:   { value: 1 },
-
-           //////////////////////////////////////////////////////
-           // renderer
-           //////////////////////////////////////////////////////
-
-           wireframe:                           { value: params.wireframe, },
-           neutral_color:                       { value: new Vector3().fromArray(params.neutral_color) },
-           smooth_normals:                      { value: params.smooth_normals, },
-
-           //////////////////////////////////////////////////////
-           // lighting
-           //////////////////////////////////////////////////////
-
-           skyPower:                            { value: params.skyPower, },
-           skyColor:                            { value: array_to_vector3(params.skyColor) },
-
-           sunPower:                            { value: Math.pow(10.0,params.sunPower), },
-           sunAngularSize:                      { value: params.sunAngularSize, },
-           sunColor:                            { value: array_to_vector3(params.sunColor) },
-           sunDir:                              { value: array_to_vector3([0,0,0]) },
-
-           //////////////////////////////////////////////////////
-           // material
-           //////////////////////////////////////////////////////
-
-           diffuse_mode:                        { value: params.diffuse_mode },
-           base_weight:                         { value: params.base_weight },
-           base_color:                          { value: array_to_vector3(params.base_color) },
-           base_roughness:                      { value: params.base_roughness },
-           base_metalness:                      { value: params.base_metalness },
-
-           specular_weight:                     { value: params.specular_weight, },
-           specular_color:                      { value: array_to_vector3(params.specular_color) },
-           specular_roughness:                  { value: params.specular_roughness },
-           specular_anisotropy:                 { value: params.specular_anisotropy },
-           specular_rotation:                   { value: params.specular_rotation },
-           specular_ior:                        { value: params.specular_ior  },
-
-           transmission_weight:                 { value: params.transmission_weight, },
-           transmission_color:                  { value: array_to_vector3(params.transmission_color) },
-           transmission_depth:                  { value: params.transmission_depth },
-           transmission_scatter:                { value: array_to_vector3(params.transmission_scatter) },
-           transmission_scatter_anisotropy:     { value: params.transmission_scatter_anisotropy },
-           transmission_dispersion_abbe_number: { value: params.transmission_dispersion_abbe_number },
-           transmission_dispersion_scale:       { value: params.transmission_dispersion_scale },
-
-           subsurface_weight:                   { value: params.subsurface_weight },
-           subsurface_color:                    { value: array_to_vector3(params.subsurface_color) },
-           subsurface_radius:                   { value: params.subsurface_radius },
-           subsurface_radius_scale:             { value: array_to_vector3(params.subsurface_radius_scale) },
-           subsurface_anisotropy:               { value: params.subsurface_anisotropy },
-           subsurface_mode:                     { value: params.subsurface_mode },
-
-           coat_weight:                         { value: params.coat_weight },
-           coat_color:                          { value: array_to_vector3(params.coat_color) },
-           coat_roughness:                      { value: params.coat_roughness },
-           coat_anisotropy:                     { value: params.coat_anisotropy },
-           coat_rotation:                       { value: params.coat_rotation },
-           coat_ior:                            { value: params.coat_ior  },
-           coat_darkening:                      { value: params.coat_darkening  },
-
-           fuzz_weight:                         { value: params.fuzz_weight },
-           fuzz_color:                          { value: array_to_vector3(params.fuzz_color) },
-           fuzz_roughness:                      { value: params.fuzz_roughness },
-
-           emission_luminance:                  { value: params.emission_luminance },
-           emission_color:                      { value: array_to_vector3(params.emission_color) },
-
-           thin_film_weight:                    { value: params.thin_film_weight },
-           thin_film_thickness:                 { value: params.thin_film_thickness },
-           thin_film_ior:                       { value: params.thin_film_ior },
-
-           geometry_opacity:                    { value: params.geometry_opacity },
-           geometry_thin_walled:                { value: params.geometry_thin_walled }
-       }
-   ] ),
-
-   vertexShader:   glsl_rasterization_openpbr_vert,
-   fragmentShader: glsl_rasterization_openpbr_frag,
-   lights: true
-} );
-
-neutralMaterial = new ShaderMaterial( {
-
-   defines:
-   {
-
-   },
-
-   uniforms: UniformsUtils.merge( [
-
-       UniformsUtils.clone(ShaderLib.phong.uniforms),
-       {
-           cameraWorldMatrix:     { value: new Matrix4() },
-           invProjectionMatrix:   { value: new Matrix4() },
-           invModelMatrix:        { value: new Matrix4() },
-           resolution:            { value: new Vector2() },
-           samples:               { value: 0 },
-           accumulation_weight:   { value: 1 },
-
-           //////////////////////////////////////////////////////
-           // renderer
-           //////////////////////////////////////////////////////
-
-           wireframe:                           { value: params.wireframe, },
-           smooth_normals:                      { value: params.smooth_normals, },
-
-           //////////////////////////////////////////////////////
-           // lighting
-           //////////////////////////////////////////////////////
-
-           skyPower:                            { value: params.skyPower, },
-           skyColor:                            { value: array_to_vector3(params.skyColor) },
-           sunPower:                            { value: Math.pow(10.0,params.sunPower), },
-           sunAngularSize:                      { value: params.sunAngularSize, },
-           sunColor:                            { value: array_to_vector3(params.sunColor) },
-           sunDir:                              { value: array_to_vector3([0,0,0]) },
-
-           //////////////////////////////////////////////////////
-           // material
-           //////////////////////////////////////////////////////
-
-           neutral_color:                       { value: new Vector3().fromArray(params.neutral_color) }
-       }
-   ] ),
-
-   vertexShader:   glsl_rasterization_neutral_vert,
-   fragmentShader: glsl_rasterization_neutral_frag,
-   lights: true
-} );
-
-pathtracedMaterial = new ShaderMaterial( {
-
-   defines:
-   {
-       BOUNCES:          params.bounces,
-       MAX_VOLUME_STEPS: params.max_volume_steps,
-
-       COAT_ENABLED:         false,
-       TRANSMISSION_ENABLED: false,
-       VOLUME_ENABLED:       false,
-       DISPERSION_ENABLED:   false,
-       THIN_FILM_ENABLED:    false,
-
-   },
-
-   uniforms: //UniformsUtils.merge( [
-
-       //UniformsUtils.clone(ShaderLib.phong.uniforms),
-       {
-           bvh_surface:             { value: new MeshBVHUniformStruct() },
-           normalAttribute_surface: { value: new FloatVertexAttributeTexture() },
-           tangentAttribute_surface:{ value: new FloatVertexAttributeTexture() },
-           has_normals_surface:     { value: 1 },
-           has_tangents_surface:    { value: 0 },
-
-           bvh_props:             { value: new MeshBVHUniformStruct() },
-           normalAttribute_props: { value: new FloatVertexAttributeTexture() },
-           tangentAttribute_props:{ value: new FloatVertexAttributeTexture() },
-           has_normals_props:     { value: 1 },
-           has_tangents_props:    { value: 0 },
-
-           cameraWorldMatrix:     { value: new Matrix4() },
-           invProjectionMatrix:   { value: new Matrix4() },
-           invModelMatrix:        { value: new Matrix4() },
-           resolution:            { value: new Vector2() },
-
-           samples:               { value: 0 },
-           accumulation_weight:   { value: 1 },
-
-           //////////////////////////////////////////////////////
-           // renderer
-           //////////////////////////////////////////////////////
-
-           wireframe:                           { value: params.wireframe, },
-           neutral_color:                       { value: new Vector3().fromArray(params.neutral_color) },
-           smooth_normals:                      { value: params.smooth_normals, },
-
-           //////////////////////////////////////////////////////
-           // lighting
-           //////////////////////////////////////////////////////
-
-           skyPower:                            { value: params.skyPower, },
-           skyColor:                            { value: array_to_vector3(params.skyColor) },
-
-           sunPower:                            { value: Math.pow(10.0,params.sunPower), },
-           sunAngularSize:                      { value: params.sunAngularSize, },
-           sunColor:                            { value: array_to_vector3(params.sunColor) },
-           sunDir:                              { value: array_to_vector3([0,0,0]) },
-
-           //////////////////////////////////////////////////////
-           // material
-           //////////////////////////////////////////////////////
-
-           diffuse_mode:                        { value: params.diffuse_mode },
-           base_weight:                         { value: params.base_weight },
-           base_color:                          { value: array_to_vector3(params.base_color) },
-           base_roughness:                      { value: params.base_roughness },
-           base_metalness:                      { value: params.base_metalness },
-
-           specular_weight:                     { value: params.specular_weight, },
-           specular_color:                      { value: array_to_vector3(params.specular_color) },
-           specular_roughness:                  { value: params.specular_roughness },
-           specular_anisotropy:                 { value: params.specular_anisotropy },
-           specular_rotation:                   { value: params.specular_rotation },
-           specular_ior:                        { value: params.specular_ior  },
-
-           transmission_weight:                 { value: params.transmission_weight, },
-           transmission_color:                  { value: array_to_vector3(params.transmission_color) },
-           transmission_depth:                  { value: params.transmission_depth },
-           transmission_scatter:                { value: array_to_vector3(params.transmission_scatter) },
-           transmission_scatter_anisotropy:     { value: params.transmission_scatter_anisotropy },
-           transmission_dispersion_abbe_number: { value: params.transmission_dispersion_abbe_number },
-           transmission_dispersion_scale:       { value: params.transmission_dispersion_scale },
-
-           subsurface_weight:                   { value: params.subsurface_weight },
-           subsurface_color:                    { value: array_to_vector3(params.subsurface_color) },
-           subsurface_radius:                   { value: params.subsurface_radius },
-           subsurface_radius_scale:             { value: array_to_vector3(params.subsurface_radius_scale) },
-           subsurface_anisotropy:               { value: params.subsurface_anisotropy },
-           subsurface_mode:                     { value: params.subsurface_mode },
-
-           coat_weight:                         { value: params.coat_weight },
-           coat_color:                          { value: array_to_vector3(params.coat_color) },
-           coat_roughness:                      { value: params.coat_roughness },
-           coat_anisotropy:                     { value: params.coat_anisotropy },
-           coat_rotation:                       { value: params.coat_rotation },
-           coat_ior:                            { value: params.coat_ior  },
-           coat_darkening:                      { value: params.coat_darkening  },
-
-           fuzz_weight:                         { value: params.fuzz_weight },
-           fuzz_color:                          { value: array_to_vector3(params.fuzz_color) },
-           fuzz_roughness:                      { value: params.fuzz_roughness },
-
-           emission_luminance:                  { value: params.emission_luminance },
-           emission_color:                      { value: array_to_vector3(params.emission_color) },
-
-           thin_film_weight:                    { value: params.thin_film_weight },
-           thin_film_thickness:                 { value: params.thin_film_thickness },
-           thin_film_ior:                       { value: params.thin_film_ior },
-
-           geometry_opacity:                    { value: params.geometry_opacity },
-           geometry_thin_walled:                { value: params.geometry_thin_walled }
-
-       },
-
-   //] ),
-
-   vertexShader: `
-       varying vec2 vUv;
-       void main()
-       {
-           vec4 mvPosition = vec4( position, 1.0 );
-           mvPosition = modelViewMatrix * mvPosition;
-           gl_Position = projectionMatrix * mvPosition;
-           vUv = uv;
-       }
-   `,
-
-   fragmentShader: `precision highp isampler2D;
-                    precision highp usampler2D;
-                    precision highp int;
-                    ${ shaderStructs }
-                    ${ shaderIntersectFunction }
-                   `
-                   + glsl_pathtracing_main
-                   + glsl_pathtracing_fuzz_brdf
-                   + glsl_pathtracing_coat_brdf
-                   + glsl_pathtracing_thin_film
-                   + glsl_pathtracing_specular_brdf
-                   + glsl_pathtracing_specular_btdf
-                   + glsl_pathtracing_metal_brdf
-                   + glsl_pathtracing_diffuse_brdf
-                   + glsl_pathtracing_openpbr_surface
-                   + glsl_pathtracing_pathtracer
-
-} );
-
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// initialize the scene and update the material properties with the bvh, materials, etc
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-load_scene(params.scene_name);
+    // Setup progress bar spinner
+    progress_bar = new Circle('#progress_overlay',
+    {
+        color: 'rgba(255, 128, 64, 0.75)',
+        strokeWidth: 5.0,
+        trailColor: 'rgba(255, 128, 64, 0.333)',
+        trailWidth: 3.0,
+        svgStyle: {
+            display: 'block',
+            width: '100%'
+        },
+        text: {
+            value: '',
+            className: 'progressbar__label',
+            style: {
+                color: 'rgba(169, 85, 42, 1.0)',
+                position: 'absolute',
+                fontWeight: 'bold',
+                left: '50%',
+                top: '50%',
+                padding: 0,
+                margin: 0,
+                transform: {
+                    prefix: true,
+                    value: 'translate(-50%, -50%)'
+                }
+            },
+            autoStyleContainer: true,
+            alignToBottom: true
+        },
+        fill: null,
+        duration: 2000.0,
+        easing: 'linear',
+        from: { color: 'rgba( 0,   0,  0, 0.0)' },
+        to: {   color: 'rgba(32, 255, 32, 1.0)' },
+        warnings: true
+    });
+    progress_bar.set(0.0);
+    progress_bar.setText('');
+
+    LOADED = false;
+    MESH_SURFACE = null;
+    MESH_PROPS = null;
+
+    BVH_SURFACE = null;
+    BVH_PROPS = null;
+
+    // renderer setup
+    renderer = new WebGLRenderer( { antialias: true, preserveDrawingBuffer: true } );
+    renderer.setPixelRatio( window.devicePixelRatio );
+    renderer.setClearColor( 0x09141a );
+    renderer.setSize( window.innerWidth, window.innerHeight );
+    renderer.outputColorSpace = LinearSRGBColorSpace;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMapSoft = true;
+    renderer.shadowMap.type = PCFSoftShadowMap; // default THREE.PCFShadowMap
+    renderer.physicallyBasedShading = true;
+
+    document.body.appendChild( renderer.domElement );
+
+    PATHTRACING = false;
+
+    // stats setup
+    stats = new Stats();
+    document.body.appendChild( stats.dom );
+
+    // Samples count text
+    let samples_txt = document.getElementById('samples');
+    samples_txt.style.visibility = 'visible';
+
+    // Info text
+    let info_txt = document.getElementById('info');
+    info_txt.style.visibility = 'visible';
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // OpenPBR surface params
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    openpbrMaterial = new ShaderMaterial( {
+
+    defines:
+    {
+
+    },
+
+    uniforms: UniformsUtils.merge( [
+
+        UniformsUtils.clone(ShaderLib.phong.uniforms),
+        {
+            cameraWorldMatrix:     { value: new Matrix4() },
+            invProjectionMatrix:   { value: new Matrix4() },
+            invModelMatrix:        { value: new Matrix4() },
+            resolution:            { value: new Vector2() },
+            samples:               { value: 0 },
+            accumulation_weight:   { value: 1 },
+
+            //////////////////////////////////////////////////////
+            // renderer
+            //////////////////////////////////////////////////////
+
+            wireframe:                           { value: params.wireframe, },
+            neutral_color:                       { value: new Vector3().fromArray(params.neutral_color) },
+            smooth_normals:                      { value: params.smooth_normals, },
+
+            //////////////////////////////////////////////////////
+            // lighting
+            //////////////////////////////////////////////////////
+
+            skyPower:                            { value: params.skyPower, },
+            skyColor:                            { value: array_to_vector3(params.skyColor) },
+
+            sunPower:                            { value: Math.pow(10.0,params.sunPower), },
+            sunAngularSize:                      { value: params.sunAngularSize, },
+            sunColor:                            { value: array_to_vector3(params.sunColor) },
+            sunDir:                              { value: array_to_vector3([0,0,0]) },
+
+            //////////////////////////////////////////////////////
+            // material
+            //////////////////////////////////////////////////////
+
+            diffuse_mode:                        { value: params.diffuse_mode },
+            base_weight:                         { value: params.base_weight },
+            base_color:                          { value: array_to_vector3(params.base_color) },
+            base_roughness:                      { value: params.base_roughness },
+            base_metalness:                      { value: params.base_metalness },
+
+            specular_weight:                     { value: params.specular_weight, },
+            specular_color:                      { value: array_to_vector3(params.specular_color) },
+            specular_roughness:                  { value: params.specular_roughness },
+            specular_anisotropy:                 { value: params.specular_anisotropy },
+            specular_rotation:                   { value: params.specular_rotation },
+            specular_ior:                        { value: params.specular_ior  },
+
+            transmission_weight:                 { value: params.transmission_weight, },
+            transmission_color:                  { value: array_to_vector3(params.transmission_color) },
+            transmission_depth:                  { value: params.transmission_depth },
+            transmission_scatter:                { value: array_to_vector3(params.transmission_scatter) },
+            transmission_scatter_anisotropy:     { value: params.transmission_scatter_anisotropy },
+            transmission_dispersion_abbe_number: { value: params.transmission_dispersion_abbe_number },
+            transmission_dispersion_scale:       { value: params.transmission_dispersion_scale },
+
+            subsurface_weight:                   { value: params.subsurface_weight },
+            subsurface_color:                    { value: array_to_vector3(params.subsurface_color) },
+            subsurface_radius:                   { value: params.subsurface_radius },
+            subsurface_radius_scale:             { value: array_to_vector3(params.subsurface_radius_scale) },
+            subsurface_anisotropy:               { value: params.subsurface_anisotropy },
+            subsurface_mode:                     { value: params.subsurface_mode },
+
+            coat_weight:                         { value: params.coat_weight },
+            coat_color:                          { value: array_to_vector3(params.coat_color) },
+            coat_roughness:                      { value: params.coat_roughness },
+            coat_anisotropy:                     { value: params.coat_anisotropy },
+            coat_rotation:                       { value: params.coat_rotation },
+            coat_ior:                            { value: params.coat_ior  },
+            coat_darkening:                      { value: params.coat_darkening  },
+
+            fuzz_weight:                         { value: params.fuzz_weight },
+            fuzz_color:                          { value: array_to_vector3(params.fuzz_color) },
+            fuzz_roughness:                      { value: params.fuzz_roughness },
+
+            emission_luminance:                  { value: params.emission_luminance },
+            emission_color:                      { value: array_to_vector3(params.emission_color) },
+
+            thin_film_weight:                    { value: params.thin_film_weight },
+            thin_film_thickness:                 { value: params.thin_film_thickness },
+            thin_film_ior:                       { value: params.thin_film_ior },
+
+            geometry_opacity:                    { value: params.geometry_opacity },
+            geometry_thin_walled:                { value: params.geometry_thin_walled }
+        }
+    ] ),
+
+    vertexShader:   glsl_rasterization_openpbr_vert,
+    fragmentShader: glsl_rasterization_openpbr_frag,
+    lights: true
+    } );
+
+    neutralMaterial = new ShaderMaterial( {
+
+    defines:
+    {
+
+    },
+
+    uniforms: UniformsUtils.merge( [
+
+        UniformsUtils.clone(ShaderLib.phong.uniforms),
+        {
+            cameraWorldMatrix:     { value: new Matrix4() },
+            invProjectionMatrix:   { value: new Matrix4() },
+            invModelMatrix:        { value: new Matrix4() },
+            resolution:            { value: new Vector2() },
+            samples:               { value: 0 },
+            accumulation_weight:   { value: 1 },
+
+            //////////////////////////////////////////////////////
+            // renderer
+            //////////////////////////////////////////////////////
+
+            wireframe:                           { value: params.wireframe, },
+            smooth_normals:                      { value: params.smooth_normals, },
+
+            //////////////////////////////////////////////////////
+            // lighting
+            //////////////////////////////////////////////////////
+
+            skyPower:                            { value: params.skyPower, },
+            skyColor:                            { value: array_to_vector3(params.skyColor) },
+            sunPower:                            { value: Math.pow(10.0,params.sunPower), },
+            sunAngularSize:                      { value: params.sunAngularSize, },
+            sunColor:                            { value: array_to_vector3(params.sunColor) },
+            sunDir:                              { value: array_to_vector3([0,0,0]) },
+
+            //////////////////////////////////////////////////////
+            // material
+            //////////////////////////////////////////////////////
+
+            neutral_color:                       { value: new Vector3().fromArray(params.neutral_color) }
+        }
+    ] ),
+
+    vertexShader:   glsl_rasterization_neutral_vert,
+    fragmentShader: glsl_rasterization_neutral_frag,
+    lights: true
+    } );
+
+    pathtracedMaterial = new ShaderMaterial( {
+
+    defines:
+    {
+        BOUNCES:          params.bounces,
+        MAX_VOLUME_STEPS: params.max_volume_steps,
+
+        COAT_ENABLED:         false,
+        TRANSMISSION_ENABLED: false,
+        VOLUME_ENABLED:       false,
+        DISPERSION_ENABLED:   false,
+        THIN_FILM_ENABLED:    false,
+
+    },
+
+    uniforms: //UniformsUtils.merge( [
+
+        //UniformsUtils.clone(ShaderLib.phong.uniforms),
+        {
+            bvh_surface:             { value: new MeshBVHUniformStruct() },
+            normalAttribute_surface: { value: new FloatVertexAttributeTexture() },
+            tangentAttribute_surface:{ value: new FloatVertexAttributeTexture() },
+            has_normals_surface:     { value: 1 },
+            has_tangents_surface:    { value: 0 },
+
+            bvh_props:             { value: new MeshBVHUniformStruct() },
+            normalAttribute_props: { value: new FloatVertexAttributeTexture() },
+            tangentAttribute_props:{ value: new FloatVertexAttributeTexture() },
+            has_normals_props:     { value: 1 },
+            has_tangents_props:    { value: 0 },
+
+            cameraWorldMatrix:     { value: new Matrix4() },
+            invProjectionMatrix:   { value: new Matrix4() },
+            invModelMatrix:        { value: new Matrix4() },
+            resolution:            { value: new Vector2() },
+
+            samples:               { value: 0 },
+            accumulation_weight:   { value: 1 },
+
+            //////////////////////////////////////////////////////
+            // renderer
+            //////////////////////////////////////////////////////
+
+            wireframe:                           { value: params.wireframe, },
+            neutral_color:                       { value: new Vector3().fromArray(params.neutral_color) },
+            smooth_normals:                      { value: params.smooth_normals, },
+
+            //////////////////////////////////////////////////////
+            // lighting
+            //////////////////////////////////////////////////////
+
+            skyPower:                            { value: params.skyPower, },
+            skyColor:                            { value: array_to_vector3(params.skyColor) },
+
+            sunPower:                            { value: Math.pow(10.0,params.sunPower), },
+            sunAngularSize:                      { value: params.sunAngularSize, },
+            sunColor:                            { value: array_to_vector3(params.sunColor) },
+            sunDir:                              { value: array_to_vector3([0,0,0]) },
+
+            //////////////////////////////////////////////////////
+            // material
+            //////////////////////////////////////////////////////
+
+            diffuse_mode:                        { value: params.diffuse_mode },
+            base_weight:                         { value: params.base_weight },
+            base_color:                          { value: array_to_vector3(params.base_color) },
+            base_roughness:                      { value: params.base_roughness },
+            base_metalness:                      { value: params.base_metalness },
+
+            specular_weight:                     { value: params.specular_weight, },
+            specular_color:                      { value: array_to_vector3(params.specular_color) },
+            specular_roughness:                  { value: params.specular_roughness },
+            specular_anisotropy:                 { value: params.specular_anisotropy },
+            specular_rotation:                   { value: params.specular_rotation },
+            specular_ior:                        { value: params.specular_ior  },
+
+            transmission_weight:                 { value: params.transmission_weight, },
+            transmission_color:                  { value: array_to_vector3(params.transmission_color) },
+            transmission_depth:                  { value: params.transmission_depth },
+            transmission_scatter:                { value: array_to_vector3(params.transmission_scatter) },
+            transmission_scatter_anisotropy:     { value: params.transmission_scatter_anisotropy },
+            transmission_dispersion_abbe_number: { value: params.transmission_dispersion_abbe_number },
+            transmission_dispersion_scale:       { value: params.transmission_dispersion_scale },
+
+            subsurface_weight:                   { value: params.subsurface_weight },
+            subsurface_color:                    { value: array_to_vector3(params.subsurface_color) },
+            subsurface_radius:                   { value: params.subsurface_radius },
+            subsurface_radius_scale:             { value: array_to_vector3(params.subsurface_radius_scale) },
+            subsurface_anisotropy:               { value: params.subsurface_anisotropy },
+            subsurface_mode:                     { value: params.subsurface_mode },
+
+            coat_weight:                         { value: params.coat_weight },
+            coat_color:                          { value: array_to_vector3(params.coat_color) },
+            coat_roughness:                      { value: params.coat_roughness },
+            coat_anisotropy:                     { value: params.coat_anisotropy },
+            coat_rotation:                       { value: params.coat_rotation },
+            coat_ior:                            { value: params.coat_ior  },
+            coat_darkening:                      { value: params.coat_darkening  },
+
+            fuzz_weight:                         { value: params.fuzz_weight },
+            fuzz_color:                          { value: array_to_vector3(params.fuzz_color) },
+            fuzz_roughness:                      { value: params.fuzz_roughness },
+
+            emission_luminance:                  { value: params.emission_luminance },
+            emission_color:                      { value: array_to_vector3(params.emission_color) },
+
+            thin_film_weight:                    { value: params.thin_film_weight },
+            thin_film_thickness:                 { value: params.thin_film_thickness },
+            thin_film_ior:                       { value: params.thin_film_ior },
+
+            geometry_opacity:                    { value: params.geometry_opacity },
+            geometry_thin_walled:                { value: params.geometry_thin_walled }
+
+        },
+
+    //] ),
+
+    vertexShader: `
+        varying vec2 vUv;
+        void main()
+        {
+            vec4 mvPosition = vec4( position, 1.0 );
+            mvPosition = modelViewMatrix * mvPosition;
+            gl_Position = projectionMatrix * mvPosition;
+            vUv = uv;
+        }
+    `,
+
+    fragmentShader: `precision highp isampler2D;
+                        precision highp usampler2D;
+                        precision highp int;
+                        ${ shaderStructs }
+                        ${ shaderIntersectFunction }
+                    `
+                    + glsl_pathtracing_main
+                    + glsl_pathtracing_fuzz_brdf
+                    + glsl_pathtracing_coat_brdf
+                    + glsl_pathtracing_thin_film
+                    + glsl_pathtracing_specular_brdf
+                    + glsl_pathtracing_specular_btdf
+                    + glsl_pathtracing_metal_brdf
+                    + glsl_pathtracing_diffuse_brdf
+                    + glsl_pathtracing_openpbr_surface
+                    + glsl_pathtracing_pathtracer
+
+    } );
+
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // initialize the scene and update the material properties with the bvh, materials, etc
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    load_scene(params.scene_name);
 }
 
 function load_scene(scene_name)
@@ -642,7 +641,6 @@ function load_scene(scene_name)
     ////////////////////////////////////////////////////////////////////////////////////
     // Create three.js scene
     scene = new Scene();
-
     ////////////////////////////////////////////////////////////////////////////////////
 
     LOADED = false;
