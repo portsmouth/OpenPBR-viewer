@@ -122,7 +122,7 @@ vec3 diffuse_brdf_albedo(in vec3 V)
 #include <color_pars_fragment>
 #include <lights_pars_begin>
 #include <normal_pars_fragment>
-//#include <envmap_common_pars_fragment>
+#include <envmap_common_pars_fragment>
 #include <shadowmap_pars_fragment>
 
 void main()
@@ -176,8 +176,8 @@ void main()
             vec3 Lworld = normalize(-Vworld + 2.0*dot(Nworld, Vworld)*Nworld); // query env map at direction reflect(V, N)
             // diffuse contribution
             {
-                //vec4 diff_env = textureLod(envMap, vec3(Lworld.x, Lworld.yz), 20.0);
-                //radiance += skyColor * skyPower * diff_env.rgb * diffuse_brdf_albedo(Vlocal);
+                vec4 diff_env = textureLod(envMap, vec3(Lworld.x, Lworld.yz), 20.0);
+                radiance += skyColor * skyPower * diff_env.rgb * diffuse_brdf_albedo(Vlocal);
             }
         }
     }
