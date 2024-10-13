@@ -3,10 +3,7 @@
 // "Fuzz"
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-float square(float x)
-{
-    return x * x;
-}
+#ifdef FUZZ_ENABLED
 
 // Gaussian fit to directional albedo table.
 float zeltner_sheen_dir_albedo(float x, float y)
@@ -14,7 +11,7 @@ float zeltner_sheen_dir_albedo(float x, float y)
     float s = y*(0.0206607 + 1.58491*y)/(0.0379424 + y*(1.32227 + y));
     float m = y*(-0.193854 + y*(-1.14885 + y*(1.7932 - 0.95943*y*y)))/(0.046391 + y);
     float o = y*(0.000654023 + (-0.0207818 + 0.119681*y)*y)/(1.26264 + y*(-1.92021 + y));
-    return exp(-0.5*square((x - m)/s))/(s*sqrt(2.0*PI)) + o;
+    return exp(-0.5*sqr((x - m)/s))/(s*sqrt(2.0*PI)) + o;
 }
 
 // Rational fits to LTC matrix coefficients.
@@ -35,10 +32,12 @@ mat3 orthonormal_basis_ltc(vec3 V)
     vec3 Y = vec3(-X.y, X.x, 0.0); // cross(N, X)
     return mat3(X, Y, vec3(0, 0, 1));
 }
+#endif // FUZZ_ENABLED
 
 vec3 fuzz_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
                         inout float pdf_woutputL)
 {
+#ifdef FUZZ_ENABLED
     if (winputL.z < DENOM_TOLERANCE || woutputL.z < DENOM_TOLERANCE) return vec3(0.0);
 
     float NdotV = min(winputL.z, 1.0);
@@ -62,18 +61,22 @@ vec3 fuzz_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
     //      = Do(wo) . |M^-1| / dot(wo, wo)^2
     //      = Do(wo) . aInv^2 / dot(wo, wo)^2
     //      = Do(wo) . (aInv / dot(wo, wo))^2
-    float jacobian = square(aInv / lenSqr);
+    float jacobian = sqr(aInv / lenSqr);
     pdf_woutputL = max(wo.z, 0.0) * RECIPROCAL_PI * jacobian;
 
     float albedo = zeltner_sheen_dir_albedo(NdotV, roughness);
 
     float NdotL = max(abs(woutputL.z), FLT_EPSILON);
     return fuzz_color * albedo * pdf_woutputL / NdotL;
+#else
+    return vec3(0.0);
+#endif // FUZZ_ENABLED
 }
 
 vec3 fuzz_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
                       out vec3 woutputL, out float pdf_woutputL)
 {
+#ifdef FUZZ_ENABLED
     if (winputL.z < DENOM_TOLERANCE) return vec3(0.0);
 
     float NdotV = min(winputL.z, 1.0);
@@ -99,7 +102,7 @@ vec3 fuzz_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rn
     //      = Do(w) . ||M.wo||^4 / |M| (possible because M doesn't change z component)
     //      = Do(w) . dot(w, w)^2 * aInv^2
     //      = Do(w) . (aInv * dot(w, w))^2
-    float jacobian = square(aInv * lenSqr);
+    float jacobian = sqr(aInv * lenSqr);
     pdf_woutputL = max(w.z, 0.0) * RECIPROCAL_PI * jacobian;
 
     mat3 fromLTC = orthonormal_basis_ltc(winputL);
@@ -108,9 +111,16 @@ vec3 fuzz_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rn
     float albedo = zeltner_sheen_dir_albedo(NdotV, roughness);
 
     return fuzz_color * albedo * RECIPROCAL_PI * jacobian; // NdotL cancelled.
+#else
+    return vec3(0.0);
+#endif // FUZZ_ENABLED
 }
 
 vec3 fuzz_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed)
 {
+#ifdef FUZZ_ENABLED
     return vec3(zeltner_sheen_dir_albedo(winputL.z, fuzz_roughness));
+#else
+    return vec3(0.0);
+#endif // FUZZ_ENABLED
 }

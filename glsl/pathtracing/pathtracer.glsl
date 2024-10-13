@@ -1,4 +1,5 @@
 
+
 /////////////////////////////////////////////////////////////////////////
 // Raytracing routines
 /////////////////////////////////////////////////////////////////////////
@@ -231,8 +232,8 @@ float sunPdf(in vec3 woutputL, in vec3 woutputW)
 
 vec3 skyRadiance(in vec3 woutputW)
 {
-    //vec4 env = textureLod(envMap, vec3(woutputW.x, woutputW.yz), 0.0);
-    //return env.rgb * skyPower * skyColor;
+    vec4 env = textureLod(envMap, vec3(woutputW.x, woutputW.yz), 0.0);
+    return env.rgb * skyPower * skyColor;
     return skyPower * skyColor;
 }
 
@@ -396,6 +397,7 @@ bool trace_volumetric(in vec3 pW, in vec3 dW, inout uint rndSeed,
     return false;
 }
 #endif // VOLUME_ENABLED
+
 
 void main()
 {

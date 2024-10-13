@@ -89,25 +89,31 @@ void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     // Base substrate //////////////////////
 
     // Compute base darkening factor due to presence of coat:
-    vec3 base_darkening = vec3(1.0);
+    vec3 w_base_substrate;
 #ifdef COAT_ENABLED
-    if (coated && coat_darkening > 0.0)
+    if (coated)
     {
-        float Kr = 1.0 - (1.0 - average_dielectric_fresnel(coat_ior))/sqr(coat_ior);
-        float Ks = FresnelDielectricReflectance(abs(winputL.z), coat_ior);
-        float Fr = clamp(specular_weight * fresnel_refl_normal_incidence(), 0.0, 1.0);
-        float rd = mix(1.0, specular_roughness, Fr); // estimate of roughness of dielectric base
-        float rm = specular_roughness;               // estimate of roughness of metallic base
-        float rb = mix(rd, rm, M);  // thus estimated roughness of entire base
-        float K = mix(Ks, Kr, rb);  // thus estimated internal diffuse reflection coeff.
-        vec3 E_dielectric_base = mix(mix(albedos.m[ID_DIFF_BRDF], albedos.m[ID_SSSC_BTDF], S),
-                                         albedos.m[ID_SPEC_BTDF], T);     // dielectric base albedo
-        vec3 E_base = mix(E_dielectric_base, albedos.m[ID_META_BRDF], M); // entire base albedo
-        vec3 Delta = (1.0 - K) / vec3(1.0 - E_base*K);                    // full darkening factor
-        base_darkening = mix(vec3(1.0), Delta, C * coat_darkening);       // modulated darkening factor
+        vec3 base_darkening = vec3(1.0);
+        if (coat_darkening > 0.0)
+        {
+            float Kr = 1.0 - (1.0 - average_dielectric_fresnel(coat_ior))/sqr(coat_ior);
+            float Ks = FresnelDielectricReflectance(abs(winputL.z), coat_ior);
+            float Fr = clamp(specular_weight * fresnel_refl_normal_incidence(), 0.0, 1.0);
+            float rd = mix(1.0, specular_roughness, Fr); // estimate of roughness of dielectric base
+            float rm = specular_roughness;               // estimate of roughness of metallic base
+            float rb = mix(rd, rm, M);  // thus estimated roughness of entire base
+            float K = mix(Ks, Kr, rb);  // thus estimated internal diffuse reflection coeff.
+            vec3 E_dielectric_base = mix(mix(albedos.m[ID_DIFF_BRDF], albedos.m[ID_SSSC_BTDF], S),
+                                            albedos.m[ID_SPEC_BTDF], T);     // dielectric base albedo
+            vec3 E_base = mix(E_dielectric_base, albedos.m[ID_META_BRDF], M); // entire base albedo
+            vec3 Delta = (1.0 - K) / vec3(1.0 - E_base*K);                    // full darkening factor
+            base_darkening = mix(vec3(1.0), Delta, C * coat_darkening);       // modulated darkening factor
+        }
+        w_base_substrate = w_coated_base * mix(vec3(1.0), base_darkening * coat_color * (vec3(1.0) - albedos.m[ID_COAT_BRDF]), C);
     }
+#else
+    w_base_substrate = w_coated_base;
 #endif // COAT_ENABLED
-    vec3 w_base_substrate = w_coated_base * mix(vec3(1.0), base_darkening * coat_color * (vec3(1.0) - albedos.m[ID_COAT_BRDF]), C);
 
     // Metal BRDF
     weights.m[ID_META_BRDF] = w_base_substrate * M;
@@ -239,76 +245,9 @@ void fill_subsurface_medium(inout Volume internal_medium)
     float g = clamp(subsurface_anisotropy, -0.95, 0.95);                                              // scattering anisotropy
     vec3 A = subsurface_color; vec3 A2 = A*A; vec3 A3 = A*A2; vec3 A4 = A2*A2;                        // multi-scatter albedo and powers
     vec3 r = subsurface_radius * subsurface_radius_scale;                                             // diffusion radius
-    vec3 S_hyperion  = 4.012 - 15.21*A + 32.34*A2 - 34.68*A3 + 13.91*A4;                              // Hyperion fit for scale factor S = L / diffusion_lengths
-    vec3 s2_hyperion = exp(-11.43*A + 15.38*A2 - 13.91*A3);                                           // Hyperion fit for one minus single scatter albedo
-    vec3 s2_vandehulst = sqr(4.09712 + A*4.20863 - sqrt(max(vec3(0.0), 9.59217 + A*41.6808 + A2*17.7126))); // Van de Hulst fit for one minus single scatter albedo
-
-    // Selection of remappings (temporary investigation)
+    vec3 s2 = exp(-11.43*A + 15.38*A2 - 13.91*A3);                                                    // Hyperion fit for one minus single scatter albedo
     vec3 mfp_epsilon = vec3(3.0*RAY_OFFSET);
-    vec3 s2; // fit for one minus single scatter albedo
-    switch (subsurface_mode)
-    {
-        case 0: // 'OpenPBR (orig, 3-float)'
-        {
-            s2 = s2_hyperion;
-            vec3 mu_t = 1.0 / max(mfp_epsilon, S_hyperion * r);
-            internal_medium.extinction = mu_t * (1.0 - g*s2) / (1.0 - g);
-            break;
-        }
-        case 1: // 'OpenPBR (luminance)'
-        {
-            s2 = s2_hyperion;
-            float S = luminance_srgb(S_hyperion);
-            vec3 mu_t = 1.0 / max(mfp_epsilon, S * r);
-            internal_medium.extinction = mu_t * (1.0 - g*s2) / (1.0 - g);
-            break;
-        }
-        case 2: // 'OpenPBR (average)'
-        {
-            s2 = s2_hyperion;
-            float S = avgComponent(S_hyperion);
-            vec3 mu_t = 1.0 / max(mfp_epsilon, S * r);
-            internal_medium.extinction = mu_t * (1.0 - g*s2) / (1.0 - g);
-            break;
-        }
-        case 3: // 'OpenPBR (max value)'
-        {
-            s2 = s2_hyperion;
-            float S = maxComponent(S_hyperion);
-            vec3 mu_t = 1.0 / max(mfp_epsilon, S * r);
-            internal_medium.extinction = mu_t * (1.0 - g*s2) / (1.0 - g);
-            break;
-        }
-        case 4: // 'OpenPBR (weighted average)'
-        {
-            s2 = s2_hyperion;
-            float S = avgComponent(S_hyperion * A) / avgComponent(A);
-            vec3 mu_t = 1.0 / max(mfp_epsilon, S * r);
-            internal_medium.extinction = mu_t * (1.0 - g*s2) / (1.0 - g);
-            break;
-        }
-        case 5: // 'SPI / Arnold v1'
-        {
-            s2 = s2_vandehulst;
-            vec3 mu_t = 1.0 / max(mfp_epsilon, r);
-            internal_medium.extinction = mu_t;
-            break;
-        }
-        case 6: // 'Arnold_v2'
-        {
-            s2 = s2_hyperion;
-            internal_medium.extinction = 1.0 / max(vec3(3.0*RAY_OFFSET), r);
-            break;
-        }
-        case 7: // 'Uniform scattering'
-        {
-            s2 = s2_vandehulst;                                // use van de Hulst remapping
-            vec3 ss_albedo = (1.0 - s2) / (1.0 - g*s2);        // gives single-scattering albedo accounting for anisotropy
-            vec3 mu_t = 1.0 / max(mfp_epsilon, ss_albedo * r); // with mu_s = 1/r, we have mu_t = mu_s / ss_albedo
-            internal_medium.extinction = mu_t;
-            break;
-        }
-    }
+    internal_medium.extinction = 1.0 / max(vec3(3.0*RAY_OFFSET), r);
     internal_medium.albedo     = (1.0 - s2) / (1.0 - g*s2); // single-scattering albedo accounting for anisotropy
     internal_medium.anisotropy = g;
 }
@@ -322,6 +261,7 @@ vec3 openpbr_bsdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint
     // Also compute PDF of all other lobes in the sampled direction.
     float X = rand(rndSeed);
     float CDF = 0.0;
+
     for (int lobe_id=0; lobe_id<NUM_LOBES; ++lobe_id)
     {
         CDF += lobe_probs.m[lobe_id];
@@ -368,6 +308,7 @@ vec3 openpbr_bsdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint
             return f;
         }
     }
+
     pdf_woutputL = 1.0;
     return vec3(0.0);
 }
