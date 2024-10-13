@@ -9,13 +9,6 @@ precision highp int;
 varying vec3 vViewPosition;
 varying vec3 vWorldPosition;
 
-
-/*
-varying vec2 vUv;
-varying vec3 vNormal;
-varying vec3 vView;
-*/
-
 //////////////////////////////////////////////////////
 // camera uniforms
 //////////////////////////////////////////////////////
@@ -55,7 +48,6 @@ uniform vec3  subsurface_color;
 uniform float subsurface_radius;
 uniform vec3  subsurface_radius_scale;
 uniform float subsurface_anisotropy;
-uniform int   subsurface_mode; // FOR TESTING
 
 uniform float coat_weight;
 uniform vec3  coat_color;

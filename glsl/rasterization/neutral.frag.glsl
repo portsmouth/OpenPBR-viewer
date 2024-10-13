@@ -9,13 +9,6 @@ precision highp int;
 varying vec3 vViewPosition;
 varying vec3 vWorldPosition;
 
-
-/*
-varying vec2 vUv;
-varying vec3 vNormal;
-varying vec3 vView;
-*/
-
 //////////////////////////////////////////////////////
 // camera uniforms
 //////////////////////////////////////////////////////
@@ -109,7 +102,6 @@ vec3 diffuse_brdf_albedo(in vec3 V)
 {
     return neutral_color;
 }
-
 
 
 ///////////////////////////////////////////////////////////////////////

@@ -94,10 +94,10 @@ async load(path)
 
 function array_to_vector3(array)
 {
-return new Vector3(array[0], array[1], array[2]);
+    return new Vector3(array[0], array[1], array[2]);
 }
 
-const params =
+var params =
 {
     //////////////////////////////////////////////////////
     // renderer params
@@ -105,11 +105,11 @@ const params =
 
     scene_name:                         'standard-shader-ball',
     smooth_normals:                     true,
-    bounces:                            2,
+    bounces:                            3,
     max_samples:                        1024,
     max_volume_steps:                   8,
     wireframe:                          false,
-    neutral_color:                      [0.5, 0.5, 0.5],
+    neutral_color:                      [0.8, 0.8, 0.8],
 
     //////////////////////////////////////////////////////
     // lighting params
@@ -131,7 +131,6 @@ const params =
     base_color:                          [0.8, 0.8, 0.8],
     base_roughness:                      0.0,
     base_metalness:                      0.0,
-    diffuse_mode:                        8,
 
     specular_weight:                     1.0,
     specular_color:                      [1.0, 1.0, 1.0],
@@ -153,7 +152,6 @@ const params =
     subsurface_radius:                   0.2,
     subsurface_radius_scale:             [1.0, 0.5, 0.25],
     subsurface_anisotropy:               0.0,
-    subsurface_mode:                     0, // FOR TESTING
 
     coat_weight:                         0.0,
     coat_color:                          [1.0, 1.0, 1.0],
@@ -181,10 +179,27 @@ const params =
 
 };
 
+var materialDefines = {
+    BOUNCES:              params.bounces,
+    MAX_VOLUME_STEPS:     params.max_volume_steps,
+
+    FUZZ_ENABLED:         false,
+    COAT_ENABLED:         false,
+    TRANSMISSION_ENABLED: false,
+    VOLUME_ENABLED:       false,
+    DISPERSION_ENABLED:   false,
+    THIN_FILM_ENABLED:    false
+};
+
 var renderer, camera, orbitControls, scene, gui, stats;
-var pathtracedQuad, pathtracedMaterial, pathtracedFinalQuad, pathtracingRenderTarget;
-var openpbrMaterial, neutralMaterial;
+var pathtracedQuad, pathtracedFinalQuad, pathtracingRenderTarget;
+var pathtracedMaterial = null;
+var openpbrMaterial = null;
+var neutralMaterial = null;
+var materialDefines;
 var directionalLight, ambientLight;
+var camera_initialized = false;
+var env_map_texture = null;
 
 var MESH_SURFACE;
 var MESH_PROPS;
@@ -200,37 +215,10 @@ var PATHTRACING;
 var samples = 0;
 
 var scene_names = {
-'Standard Shader Ball': 'standard-shader-ball',
-'Glavenus':             'glavenus',
-'Terrain':              'terrain',
-'Bearded Man':          'bearded-man'
-}
-
-var subsurface_mode_names = {
-'OpenPBR (orig, 3-float)':    0,
-'OpenPBR (luminace)':         1,
-'OpenPBR (average)':          2,
-'OpenPBR (max value)':        3,
-'OpenPBR (weighted average)': 4,
-'SPI / Arnold v1':            5,
-'Arnold v2':                  6,
-'Uniform scattering':         7
-}
-
-var diffuse_mode_names = {
-'Lambert':                                                0,
-'ON Full (Mitsuba)':                                      1,
-'ON Qualitative (QON)':                                   2,
-'ON Qualitative - Energy Conserving (EQON exact)':        3,
-'ON Qualitative - Energy Conserving (EQON approx)':       4,
-'Fujii - Qualitative (FON)':                              5,
-'Fujii - Energy Conserving (EFON exact)':                 6,
-'Fujii - Energy Conserving (EFON approx)':                7,
-'Fujii - Energy Conserving (EFON exact, LTC sampling)':   8,
-'Fujii - Energy Conserving (EFON approx, LTC sampling)':  9,
-'Fujii - MaterialX':                                      10,
-'Chan Diffuse (Unreal)':                                  11,
-'d\'Eon sphere model':                                    12
+    'Standard Shader Ball': 'standard-shader-ball',
+    'Glavenus':             'glavenus',
+    'Terrain':              'terrain',
+    'Bearded Man':          'bearded-man'
 }
 
 init();
@@ -238,18 +226,378 @@ render();
 
 function updateSunDir()
 {
-let latTheta = (90.0-params.sunLatitude) * Math.PI/180.0;
-let lonPhi = params.sunLongitude * Math.PI/180.0;
-let costheta = Math.cos(latTheta);
-let sintheta = Math.sin(latTheta);
-let cosphi = Math.cos(lonPhi);
-let sinphi = Math.sin(lonPhi);
-let x = sintheta * cosphi;
-let z = sintheta * sinphi;
-let y = costheta;
-params.sunDir = [x, y, z];
+    let latTheta = (90.0-params.sunLatitude) * Math.PI/180.0;
+    let lonPhi = params.sunLongitude * Math.PI/180.0;
+    let costheta = Math.cos(latTheta);
+    let sintheta = Math.sin(latTheta);
+    let cosphi = Math.cos(lonPhi);
+    let sinphi = Math.sin(lonPhi);
+    let x = sintheta * cosphi;
+    let z = sintheta * sinphi;
+    let y = costheta;
+    params.sunDir = [x, y, z];
 }
 
+function fuzz_enabled()
+{
+    if (params.fuzz_weight == 0.0)
+        return false;
+    return true;
+}
+
+function coat_enabled()
+{
+    if (params.coat_weight == 0.0)
+        return false;
+    return true;
+}
+
+function volume_enabled()
+{
+    if (params.base_metalness == 1.0)
+        return false;
+    if (params.transmission_weight > 0.0 &&
+        params.transmission_depth > 0.0)
+        return true;
+    if (params.subsurface_weight > 0.0)
+        return true;
+    return false;
+}
+
+function transmission_enabled()
+{
+    if (params.transmission_weight > 0.0)
+        return true;
+    if (params.subsurface_weight > 0.0)
+        return true;
+    return false;
+}
+
+function dispersion_enabled()
+{
+    if (params.transmission_dispersion_scale > 0.0)
+        return true;
+    return false;
+}
+
+function thin_film_enabled()
+{
+    if (params.thin_film_weight > 0.0)
+        return true;
+    return false;
+}
+
+function create_materials()
+{
+    if (openpbrMaterial)
+        openpbrMaterial.dispose();
+
+    if (neutralMaterial)
+        neutralMaterial.dispose();
+
+    if (pathtracedMaterial)
+        pathtracedMaterial.dispose();
+
+    materialDefines.BOUNCES          = params.bounces;
+    materialDefines.MAX_VOLUME_STEPS = params.max_volume_steps;
+    materialDefines.FUZZ_ENABLED         = fuzz_enabled();
+    materialDefines.COAT_ENABLED         = coat_enabled();
+    materialDefines.TRANSMISSION_ENABLED = volume_enabled();
+    materialDefines.VOLUME_ENABLED       = transmission_enabled();
+    materialDefines.DISPERSION_ENABLED   = dispersion_enabled();
+    materialDefines.THIN_FILM_ENABLED    = thin_film_enabled();
+
+    if (!PATHTRACING)
+    {
+        //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        // openpbrMaterial (for rasterization)
+        //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        openpbrMaterial = new ShaderMaterial( {
+
+            defines: materialDefines,
+
+            uniforms: UniformsUtils.merge( [
+
+                    UniformsUtils.clone(ShaderLib.phong.uniforms),
+                    {
+                        cameraWorldMatrix:     { value: new Matrix4() },
+                        invProjectionMatrix:   { value: new Matrix4() },
+                        invModelMatrix:        { value: new Matrix4() },
+                        resolution:            { value: new Vector2() },
+                        samples:               { value: 0 },
+                        accumulation_weight:   { value: 1 },
+
+                        //////////////////////////////////////////////////////
+                        // renderer
+                        //////////////////////////////////////////////////////
+
+                        wireframe:                           { value: params.wireframe, },
+                        neutral_color:                       { value: new Vector3().fromArray(params.neutral_color) },
+                        smooth_normals:                      { value: params.smooth_normals, },
+
+                        //////////////////////////////////////////////////////
+                        // lighting
+                        //////////////////////////////////////////////////////
+
+                        skyPower:                            { value: params.skyPower, },
+                        skyColor:                            { value: array_to_vector3(params.skyColor) },
+
+                        sunPower:                            { value: Math.pow(10.0,params.sunPower), },
+                        sunAngularSize:                      { value: params.sunAngularSize, },
+                        sunColor:                            { value: array_to_vector3(params.sunColor) },
+                        sunDir:                              { value: array_to_vector3([0,0,0]) },
+
+                        //////////////////////////////////////////////////////
+                        // material
+                        //////////////////////////////////////////////////////
+
+                        base_weight:                         { value: params.base_weight },
+                        base_color:                          { value: array_to_vector3(params.base_color) },
+                        base_roughness:                      { value: params.base_roughness },
+                        base_metalness:                      { value: params.base_metalness },
+
+                        specular_weight:                     { value: params.specular_weight, },
+                        specular_color:                      { value: array_to_vector3(params.specular_color) },
+                        specular_roughness:                  { value: params.specular_roughness },
+                        specular_anisotropy:                 { value: params.specular_anisotropy },
+                        specular_rotation:                   { value: params.specular_rotation },
+                        specular_ior:                        { value: params.specular_ior  },
+
+                        transmission_weight:                 { value: params.transmission_weight, },
+                        transmission_color:                  { value: array_to_vector3(params.transmission_color) },
+                        transmission_depth:                  { value: params.transmission_depth },
+                        transmission_scatter:                { value: array_to_vector3(params.transmission_scatter) },
+                        transmission_scatter_anisotropy:     { value: params.transmission_scatter_anisotropy },
+                        transmission_dispersion_abbe_number: { value: params.transmission_dispersion_abbe_number },
+                        transmission_dispersion_scale:       { value: params.transmission_dispersion_scale },
+
+                        subsurface_weight:                   { value: params.subsurface_weight },
+                        subsurface_color:                    { value: array_to_vector3(params.subsurface_color) },
+                        subsurface_radius:                   { value: params.subsurface_radius },
+                        subsurface_radius_scale:             { value: array_to_vector3(params.subsurface_radius_scale) },
+                        subsurface_anisotropy:               { value: params.subsurface_anisotropy },
+
+                        coat_weight:                         { value: params.coat_weight },
+                        coat_color:                          { value: array_to_vector3(params.coat_color) },
+                        coat_roughness:                      { value: params.coat_roughness },
+                        coat_anisotropy:                     { value: params.coat_anisotropy },
+                        coat_rotation:                       { value: params.coat_rotation },
+                        coat_ior:                            { value: params.coat_ior  },
+                        coat_darkening:                      { value: params.coat_darkening  },
+
+                        fuzz_weight:                         { value: params.fuzz_weight },
+                        fuzz_color:                          { value: array_to_vector3(params.fuzz_color) },
+                        fuzz_roughness:                      { value: params.fuzz_roughness },
+
+                        emission_luminance:                  { value: params.emission_luminance },
+                        emission_color:                      { value: array_to_vector3(params.emission_color) },
+
+                        thin_film_weight:                    { value: params.thin_film_weight },
+                        thin_film_thickness:                 { value: params.thin_film_thickness },
+                        thin_film_ior:                       { value: params.thin_film_ior },
+
+                        geometry_opacity:                    { value: params.geometry_opacity },
+                        geometry_thin_walled:                { value: params.geometry_thin_walled }
+                    }
+                ] ),
+
+                vertexShader:   glsl_rasterization_openpbr_vert,
+                fragmentShader: glsl_rasterization_openpbr_frag,
+                lights: true
+            } );
+
+
+        //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        // neutralMaterial (for rasterization)
+        //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+        neutralMaterial = new ShaderMaterial( {
+
+        defines: materialDefines,
+
+        uniforms: UniformsUtils.merge( [
+
+            UniformsUtils.clone(ShaderLib.phong.uniforms),
+            {
+                cameraWorldMatrix:     { value: new Matrix4() },
+                invProjectionMatrix:   { value: new Matrix4() },
+                invModelMatrix:        { value: new Matrix4() },
+                resolution:            { value: new Vector2() },
+                samples:               { value: 0 },
+                accumulation_weight:   { value: 1 },
+
+                //////////////////////////////////////////////////////
+                // renderer
+                //////////////////////////////////////////////////////
+
+                wireframe:                           { value: params.wireframe, },
+                smooth_normals:                      { value: params.smooth_normals, },
+
+                //////////////////////////////////////////////////////
+                // lighting
+                //////////////////////////////////////////////////////
+
+                skyPower:                            { value: params.skyPower, },
+                skyColor:                            { value: array_to_vector3(params.skyColor) },
+                sunPower:                            { value: Math.pow(10.0,params.sunPower), },
+                sunAngularSize:                      { value: params.sunAngularSize, },
+                sunColor:                            { value: array_to_vector3(params.sunColor) },
+                sunDir:                              { value: array_to_vector3([0,0,0]) },
+
+                //////////////////////////////////////////////////////
+                // material
+                //////////////////////////////////////////////////////
+
+                neutral_color:                       { value: new Vector3().fromArray(params.neutral_color) }
+            }
+        ] ),
+
+        vertexShader:   glsl_rasterization_neutral_vert,
+        fragmentShader: glsl_rasterization_neutral_frag,
+        lights: true
+        } );
+    }
+
+    if (PATHTRACING)
+    {
+        //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        // pathtracedMaterial (for pathtracing shader)
+        //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+        pathtracedMaterial = new ShaderMaterial( {
+
+        defines: materialDefines,
+
+        uniforms: UniformsUtils.merge( [
+
+            UniformsUtils.clone(ShaderLib.phong.uniforms),
+            {
+                bvh_surface:             { value: new MeshBVHUniformStruct() },
+                normalAttribute_surface: { value: new FloatVertexAttributeTexture() },
+                tangentAttribute_surface:{ value: new FloatVertexAttributeTexture() },
+                has_normals_surface:     { value: 1 },
+                has_tangents_surface:    { value: 0 },
+
+                bvh_props:             { value: new MeshBVHUniformStruct() },
+                normalAttribute_props: { value: new FloatVertexAttributeTexture() },
+                tangentAttribute_props:{ value: new FloatVertexAttributeTexture() },
+                has_normals_props:     { value: 1 },
+                has_tangents_props:    { value: 0 },
+
+                cameraWorldMatrix:     { value: new Matrix4() },
+                invProjectionMatrix:   { value: new Matrix4() },
+                invModelMatrix:        { value: new Matrix4() },
+                resolution:            { value: new Vector2() },
+
+                samples:               { value: 0 },
+                accumulation_weight:   { value: 1 },
+
+                //////////////////////////////////////////////////////
+                // renderer
+                //////////////////////////////////////////////////////
+
+                wireframe:                           { value: params.wireframe, },
+                neutral_color:                       { value: new Vector3().fromArray(params.neutral_color) },
+                smooth_normals:                      { value: params.smooth_normals, },
+
+                //////////////////////////////////////////////////////
+                // lighting
+                //////////////////////////////////////////////////////
+
+                skyPower:                            { value: params.skyPower, },
+                skyColor:                            { value: array_to_vector3(params.skyColor) },
+
+                sunPower:                            { value: Math.pow(10.0,params.sunPower), },
+                sunAngularSize:                      { value: params.sunAngularSize, },
+                sunColor:                            { value: array_to_vector3(params.sunColor) },
+                sunDir:                              { value: array_to_vector3([0,0,0]) },
+
+                //////////////////////////////////////////////////////
+                // material
+                //////////////////////////////////////////////////////
+
+                base_weight:                         { value: params.base_weight },
+                base_color:                          { value: array_to_vector3(params.base_color) },
+                base_roughness:                      { value: params.base_roughness },
+                base_metalness:                      { value: params.base_metalness },
+
+                specular_weight:                     { value: params.specular_weight, },
+                specular_color:                      { value: array_to_vector3(params.specular_color) },
+                specular_roughness:                  { value: params.specular_roughness },
+                specular_anisotropy:                 { value: params.specular_anisotropy },
+                specular_rotation:                   { value: params.specular_rotation },
+                specular_ior:                        { value: params.specular_ior  },
+
+                transmission_weight:                 { value: params.transmission_weight, },
+                transmission_color:                  { value: array_to_vector3(params.transmission_color) },
+                transmission_depth:                  { value: params.transmission_depth },
+                transmission_scatter:                { value: array_to_vector3(params.transmission_scatter) },
+                transmission_scatter_anisotropy:     { value: params.transmission_scatter_anisotropy },
+                transmission_dispersion_abbe_number: { value: params.transmission_dispersion_abbe_number },
+                transmission_dispersion_scale:       { value: params.transmission_dispersion_scale },
+
+                subsurface_weight:                   { value: params.subsurface_weight },
+                subsurface_color:                    { value: array_to_vector3(params.subsurface_color) },
+                subsurface_radius:                   { value: params.subsurface_radius },
+                subsurface_radius_scale:             { value: array_to_vector3(params.subsurface_radius_scale) },
+                subsurface_anisotropy:               { value: params.subsurface_anisotropy },
+
+                coat_weight:                         { value: params.coat_weight },
+                coat_color:                          { value: array_to_vector3(params.coat_color) },
+                coat_roughness:                      { value: params.coat_roughness },
+                coat_anisotropy:                     { value: params.coat_anisotropy },
+                coat_rotation:                       { value: params.coat_rotation },
+                coat_ior:                            { value: params.coat_ior  },
+                coat_darkening:                      { value: params.coat_darkening  },
+
+                fuzz_weight:                         { value: params.fuzz_weight },
+                fuzz_color:                          { value: array_to_vector3(params.fuzz_color) },
+                fuzz_roughness:                      { value: params.fuzz_roughness },
+
+                emission_luminance:                  { value: params.emission_luminance },
+                emission_color:                      { value: array_to_vector3(params.emission_color) },
+
+                thin_film_weight:                    { value: params.thin_film_weight },
+                thin_film_thickness:                 { value: params.thin_film_thickness },
+                thin_film_ior:                       { value: params.thin_film_ior },
+
+                geometry_opacity:                    { value: params.geometry_opacity },
+                geometry_thin_walled:                { value: params.geometry_thin_walled }
+
+            },
+        ] ),
+
+        vertexShader: `
+            varying vec2 vUv;
+            void main()
+            {
+                vec4 mvPosition = vec4( position, 1.0 );
+                mvPosition = modelViewMatrix * mvPosition;
+                gl_Position = projectionMatrix * mvPosition;
+                vUv = uv;
+            }
+        `,
+
+        fragmentShader: `precision highp isampler2D;
+                            precision highp usampler2D;
+                            precision highp int;
+                            ${ shaderStructs }
+                            ${ shaderIntersectFunction }
+                        `
+                        + glsl_pathtracing_main
+                        + glsl_pathtracing_fuzz_brdf
+                        + glsl_pathtracing_coat_brdf
+                        + glsl_pathtracing_thin_film
+                        + glsl_pathtracing_specular_brdf
+                        + glsl_pathtracing_specular_btdf
+                        + glsl_pathtracing_metal_brdf
+                        + glsl_pathtracing_diffuse_brdf
+                        + glsl_pathtracing_openpbr_surface
+                        + glsl_pathtracing_pathtracer
+
+        } );
+    }
+}
 
 function init()
 {
@@ -296,7 +644,6 @@ function init()
     LOADED = false;
     MESH_SURFACE = null;
     MESH_PROPS = null;
-
     BVH_SURFACE = null;
     BVH_PROPS = null;
 
@@ -327,305 +674,8 @@ function init()
     let info_txt = document.getElementById('info');
     info_txt.style.visibility = 'visible';
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // OpenPBR surface params
-    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-    openpbrMaterial = new ShaderMaterial( {
-
-    defines:
-    {
-
-    },
-
-    uniforms: UniformsUtils.merge( [
-
-        UniformsUtils.clone(ShaderLib.phong.uniforms),
-        {
-            cameraWorldMatrix:     { value: new Matrix4() },
-            invProjectionMatrix:   { value: new Matrix4() },
-            invModelMatrix:        { value: new Matrix4() },
-            resolution:            { value: new Vector2() },
-            samples:               { value: 0 },
-            accumulation_weight:   { value: 1 },
-
-            //////////////////////////////////////////////////////
-            // renderer
-            //////////////////////////////////////////////////////
-
-            wireframe:                           { value: params.wireframe, },
-            neutral_color:                       { value: new Vector3().fromArray(params.neutral_color) },
-            smooth_normals:                      { value: params.smooth_normals, },
-
-            //////////////////////////////////////////////////////
-            // lighting
-            //////////////////////////////////////////////////////
-
-            skyPower:                            { value: params.skyPower, },
-            skyColor:                            { value: array_to_vector3(params.skyColor) },
-
-            sunPower:                            { value: Math.pow(10.0,params.sunPower), },
-            sunAngularSize:                      { value: params.sunAngularSize, },
-            sunColor:                            { value: array_to_vector3(params.sunColor) },
-            sunDir:                              { value: array_to_vector3([0,0,0]) },
-
-            //////////////////////////////////////////////////////
-            // material
-            //////////////////////////////////////////////////////
-
-            diffuse_mode:                        { value: params.diffuse_mode },
-            base_weight:                         { value: params.base_weight },
-            base_color:                          { value: array_to_vector3(params.base_color) },
-            base_roughness:                      { value: params.base_roughness },
-            base_metalness:                      { value: params.base_metalness },
-
-            specular_weight:                     { value: params.specular_weight, },
-            specular_color:                      { value: array_to_vector3(params.specular_color) },
-            specular_roughness:                  { value: params.specular_roughness },
-            specular_anisotropy:                 { value: params.specular_anisotropy },
-            specular_rotation:                   { value: params.specular_rotation },
-            specular_ior:                        { value: params.specular_ior  },
-
-            transmission_weight:                 { value: params.transmission_weight, },
-            transmission_color:                  { value: array_to_vector3(params.transmission_color) },
-            transmission_depth:                  { value: params.transmission_depth },
-            transmission_scatter:                { value: array_to_vector3(params.transmission_scatter) },
-            transmission_scatter_anisotropy:     { value: params.transmission_scatter_anisotropy },
-            transmission_dispersion_abbe_number: { value: params.transmission_dispersion_abbe_number },
-            transmission_dispersion_scale:       { value: params.transmission_dispersion_scale },
-
-            subsurface_weight:                   { value: params.subsurface_weight },
-            subsurface_color:                    { value: array_to_vector3(params.subsurface_color) },
-            subsurface_radius:                   { value: params.subsurface_radius },
-            subsurface_radius_scale:             { value: array_to_vector3(params.subsurface_radius_scale) },
-            subsurface_anisotropy:               { value: params.subsurface_anisotropy },
-            subsurface_mode:                     { value: params.subsurface_mode },
-
-            coat_weight:                         { value: params.coat_weight },
-            coat_color:                          { value: array_to_vector3(params.coat_color) },
-            coat_roughness:                      { value: params.coat_roughness },
-            coat_anisotropy:                     { value: params.coat_anisotropy },
-            coat_rotation:                       { value: params.coat_rotation },
-            coat_ior:                            { value: params.coat_ior  },
-            coat_darkening:                      { value: params.coat_darkening  },
-
-            fuzz_weight:                         { value: params.fuzz_weight },
-            fuzz_color:                          { value: array_to_vector3(params.fuzz_color) },
-            fuzz_roughness:                      { value: params.fuzz_roughness },
-
-            emission_luminance:                  { value: params.emission_luminance },
-            emission_color:                      { value: array_to_vector3(params.emission_color) },
-
-            thin_film_weight:                    { value: params.thin_film_weight },
-            thin_film_thickness:                 { value: params.thin_film_thickness },
-            thin_film_ior:                       { value: params.thin_film_ior },
-
-            geometry_opacity:                    { value: params.geometry_opacity },
-            geometry_thin_walled:                { value: params.geometry_thin_walled }
-        }
-    ] ),
-
-    vertexShader:   glsl_rasterization_openpbr_vert,
-    fragmentShader: glsl_rasterization_openpbr_frag,
-    lights: true
-    } );
-
-    neutralMaterial = new ShaderMaterial( {
-
-    defines:
-    {
-
-    },
-
-    uniforms: UniformsUtils.merge( [
-
-        UniformsUtils.clone(ShaderLib.phong.uniforms),
-        {
-            cameraWorldMatrix:     { value: new Matrix4() },
-            invProjectionMatrix:   { value: new Matrix4() },
-            invModelMatrix:        { value: new Matrix4() },
-            resolution:            { value: new Vector2() },
-            samples:               { value: 0 },
-            accumulation_weight:   { value: 1 },
-
-            //////////////////////////////////////////////////////
-            // renderer
-            //////////////////////////////////////////////////////
-
-            wireframe:                           { value: params.wireframe, },
-            smooth_normals:                      { value: params.smooth_normals, },
-
-            //////////////////////////////////////////////////////
-            // lighting
-            //////////////////////////////////////////////////////
-
-            skyPower:                            { value: params.skyPower, },
-            skyColor:                            { value: array_to_vector3(params.skyColor) },
-            sunPower:                            { value: Math.pow(10.0,params.sunPower), },
-            sunAngularSize:                      { value: params.sunAngularSize, },
-            sunColor:                            { value: array_to_vector3(params.sunColor) },
-            sunDir:                              { value: array_to_vector3([0,0,0]) },
-
-            //////////////////////////////////////////////////////
-            // material
-            //////////////////////////////////////////////////////
-
-            neutral_color:                       { value: new Vector3().fromArray(params.neutral_color) }
-        }
-    ] ),
-
-    vertexShader:   glsl_rasterization_neutral_vert,
-    fragmentShader: glsl_rasterization_neutral_frag,
-    lights: true
-    } );
-
-    pathtracedMaterial = new ShaderMaterial( {
-
-    defines:
-    {
-        BOUNCES:          params.bounces,
-        MAX_VOLUME_STEPS: params.max_volume_steps,
-
-        COAT_ENABLED:         false,
-        TRANSMISSION_ENABLED: false,
-        VOLUME_ENABLED:       false,
-        DISPERSION_ENABLED:   false,
-        THIN_FILM_ENABLED:    false,
-
-    },
-
-    uniforms: //UniformsUtils.merge( [
-
-        //UniformsUtils.clone(ShaderLib.phong.uniforms),
-        {
-            bvh_surface:             { value: new MeshBVHUniformStruct() },
-            normalAttribute_surface: { value: new FloatVertexAttributeTexture() },
-            tangentAttribute_surface:{ value: new FloatVertexAttributeTexture() },
-            has_normals_surface:     { value: 1 },
-            has_tangents_surface:    { value: 0 },
-
-            bvh_props:             { value: new MeshBVHUniformStruct() },
-            normalAttribute_props: { value: new FloatVertexAttributeTexture() },
-            tangentAttribute_props:{ value: new FloatVertexAttributeTexture() },
-            has_normals_props:     { value: 1 },
-            has_tangents_props:    { value: 0 },
-
-            cameraWorldMatrix:     { value: new Matrix4() },
-            invProjectionMatrix:   { value: new Matrix4() },
-            invModelMatrix:        { value: new Matrix4() },
-            resolution:            { value: new Vector2() },
-
-            samples:               { value: 0 },
-            accumulation_weight:   { value: 1 },
-
-            //////////////////////////////////////////////////////
-            // renderer
-            //////////////////////////////////////////////////////
-
-            wireframe:                           { value: params.wireframe, },
-            neutral_color:                       { value: new Vector3().fromArray(params.neutral_color) },
-            smooth_normals:                      { value: params.smooth_normals, },
-
-            //////////////////////////////////////////////////////
-            // lighting
-            //////////////////////////////////////////////////////
-
-            skyPower:                            { value: params.skyPower, },
-            skyColor:                            { value: array_to_vector3(params.skyColor) },
-
-            sunPower:                            { value: Math.pow(10.0,params.sunPower), },
-            sunAngularSize:                      { value: params.sunAngularSize, },
-            sunColor:                            { value: array_to_vector3(params.sunColor) },
-            sunDir:                              { value: array_to_vector3([0,0,0]) },
-
-            //////////////////////////////////////////////////////
-            // material
-            //////////////////////////////////////////////////////
-
-            diffuse_mode:                        { value: params.diffuse_mode },
-            base_weight:                         { value: params.base_weight },
-            base_color:                          { value: array_to_vector3(params.base_color) },
-            base_roughness:                      { value: params.base_roughness },
-            base_metalness:                      { value: params.base_metalness },
-
-            specular_weight:                     { value: params.specular_weight, },
-            specular_color:                      { value: array_to_vector3(params.specular_color) },
-            specular_roughness:                  { value: params.specular_roughness },
-            specular_anisotropy:                 { value: params.specular_anisotropy },
-            specular_rotation:                   { value: params.specular_rotation },
-            specular_ior:                        { value: params.specular_ior  },
-
-            transmission_weight:                 { value: params.transmission_weight, },
-            transmission_color:                  { value: array_to_vector3(params.transmission_color) },
-            transmission_depth:                  { value: params.transmission_depth },
-            transmission_scatter:                { value: array_to_vector3(params.transmission_scatter) },
-            transmission_scatter_anisotropy:     { value: params.transmission_scatter_anisotropy },
-            transmission_dispersion_abbe_number: { value: params.transmission_dispersion_abbe_number },
-            transmission_dispersion_scale:       { value: params.transmission_dispersion_scale },
-
-            subsurface_weight:                   { value: params.subsurface_weight },
-            subsurface_color:                    { value: array_to_vector3(params.subsurface_color) },
-            subsurface_radius:                   { value: params.subsurface_radius },
-            subsurface_radius_scale:             { value: array_to_vector3(params.subsurface_radius_scale) },
-            subsurface_anisotropy:               { value: params.subsurface_anisotropy },
-            subsurface_mode:                     { value: params.subsurface_mode },
-
-            coat_weight:                         { value: params.coat_weight },
-            coat_color:                          { value: array_to_vector3(params.coat_color) },
-            coat_roughness:                      { value: params.coat_roughness },
-            coat_anisotropy:                     { value: params.coat_anisotropy },
-            coat_rotation:                       { value: params.coat_rotation },
-            coat_ior:                            { value: params.coat_ior  },
-            coat_darkening:                      { value: params.coat_darkening  },
-
-            fuzz_weight:                         { value: params.fuzz_weight },
-            fuzz_color:                          { value: array_to_vector3(params.fuzz_color) },
-            fuzz_roughness:                      { value: params.fuzz_roughness },
-
-            emission_luminance:                  { value: params.emission_luminance },
-            emission_color:                      { value: array_to_vector3(params.emission_color) },
-
-            thin_film_weight:                    { value: params.thin_film_weight },
-            thin_film_thickness:                 { value: params.thin_film_thickness },
-            thin_film_ior:                       { value: params.thin_film_ior },
-
-            geometry_opacity:                    { value: params.geometry_opacity },
-            geometry_thin_walled:                { value: params.geometry_thin_walled }
-
-        },
-
-    //] ),
-
-    vertexShader: `
-        varying vec2 vUv;
-        void main()
-        {
-            vec4 mvPosition = vec4( position, 1.0 );
-            mvPosition = modelViewMatrix * mvPosition;
-            gl_Position = projectionMatrix * mvPosition;
-            vUv = uv;
-        }
-    `,
-
-    fragmentShader: `precision highp isampler2D;
-                        precision highp usampler2D;
-                        precision highp int;
-                        ${ shaderStructs }
-                        ${ shaderIntersectFunction }
-                    `
-                    + glsl_pathtracing_main
-                    + glsl_pathtracing_fuzz_brdf
-                    + glsl_pathtracing_coat_brdf
-                    + glsl_pathtracing_thin_film
-                    + glsl_pathtracing_specular_brdf
-                    + glsl_pathtracing_specular_btdf
-                    + glsl_pathtracing_metal_brdf
-                    + glsl_pathtracing_diffuse_brdf
-                    + glsl_pathtracing_openpbr_surface
-                    + glsl_pathtracing_pathtracer
-
-    } );
-
+    gui = null;
+    camera_initialized = false;
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // initialize the scene and update the material properties with the bvh, materials, etc
@@ -634,124 +684,155 @@ function init()
     load_scene(params.scene_name);
 }
 
+function load_geometry(scene_name)
+{
+    scene.background = env_map_texture;
+    env_map_texture.mapping = EquirectangularReflectionMapping ;
+    env_map_texture.colorSpace = SRGBColorSpace;
+    if (!PATHTRACING)
+    {
+        neutralMaterial.envMap                = env_map_texture;
+        neutralMaterial.uniforms.envMap.value = env_map_texture;
+        openpbrMaterial.envMap                = env_map_texture;
+        openpbrMaterial.uniforms.envMap.value = env_map_texture;
+    }
+    else
+    {
+        pathtracedMaterial.envMap                = env_map_texture;
+        pathtracedMaterial.uniforms.envMap.value = env_map_texture;
+    }
+
+    let loader = new MeshLoader();
+
+    // Load "neutral" objects (i.e. Lambert shaded background stuff)
+    loader.load(scene_name + '/neutral_objects.glb').then( () => {
+
+        if (!PATHTRACING)
+        {
+            // Set up mesh properties for rasterization
+            loader.result.scene.traverse((o) => {
+                if (o.isMesh)
+                {
+                    o.material = neutralMaterial;
+                    o.receiveShadow = true;
+                    o.castShadow = false;
+                    o.material.side = DoubleSide;
+                }
+            });
+        }
+
+        scene.add(loader.result.scene);
+
+        MESH_PROPS = loader.result.mesh;
+
+        if (PATHTRACING)
+        {
+            // Set up mesh properties for pathtracing
+            BVH_PROPS  = loader.result.bvh;
+            pathtracedMaterial.uniforms.bvh_props.value.updateFrom( BVH_PROPS );
+            pathtracedMaterial.uniforms.has_normals_props.value = false;
+            pathtracedMaterial.uniforms.has_tangents_props.value = false;
+            if (MESH_PROPS.geometry.attributes.normal)
+            {
+                pathtracedMaterial.uniforms.normalAttribute_props.value.updateFrom( MESH_PROPS.geometry.attributes.normal );
+                pathtracedMaterial.uniforms.has_normals_props.value = true;
+            }
+            if (MESH_PROPS.geometry.attributes.tangent)
+            {
+                pathtracedMaterial.uniforms.tangentAttribute_props.value.updateFrom( MESH_PROPS.geometry.attributes.tangent );
+                pathtracedMaterial.uniforms.has_tangents_props.value = true;
+            }
+            console.log("  has_normals_scene:  ", pathtracedMaterial.uniforms.has_normals_props);
+            console.log("  has_tangents_scene: ", pathtracedMaterial.uniforms.has_tangents_props);
+        }
+
+        progress_bar.animate(0.5);
+        loader.reset();
+
+        // Load OpenPBR-shaded objects
+        loader.load(scene_name + '/openpbr_objects.glb').then( () => {
+
+            if (!PATHTRACING)
+            {
+                // Set up mesh properties for rasterization
+                loader.result.scene.traverse((o) => {
+                    if (o.isMesh)
+                    {
+                        o.material = openpbrMaterial;
+                        o.receiveShadow = true;
+                        o.castShadow = true;
+                    }
+                });
+            }
+
+            scene.add(loader.result.scene);
+
+            MESH_SURFACE = loader.result.mesh;
+
+            if (PATHTRACING)
+            {
+                // Set up mesh properties for pathtracing
+                BVH_SURFACE  = loader.result.bvh;
+                pathtracedMaterial.uniforms.bvh_surface.value.updateFrom( BVH_SURFACE );
+                pathtracedMaterial.uniforms.has_normals_surface.value = false;
+                pathtracedMaterial.uniforms.has_tangents_surface.value = false;
+                if (MESH_SURFACE.geometry.attributes.normal)
+                {
+                    pathtracedMaterial.uniforms.normalAttribute_surface.value.updateFrom( MESH_SURFACE.geometry.attributes.normal );
+                    pathtracedMaterial.uniforms.has_normals_surface.value = true;
+                }
+                if (MESH_SURFACE.geometry.attributes.tangent)
+                {
+                    pathtracedMaterial.uniforms.tangentAttribute_surface.value.updateFrom( MESH_SURFACE.geometry.attributes.tangent );
+                    pathtracedMaterial.uniforms.has_tangents_surface.value = true;
+                }
+                console.log("  has_normals_surface:  ", pathtracedMaterial.uniforms.has_normals_surface);
+                console.log("  has_tangents_surface: ", pathtracedMaterial.uniforms.has_tangents_surface);
+                console.log("===> LOADED");
+            }
+
+            LOADED = true;
+
+            post_load_setup();
+
+            progress_bar.animate(1.0);
+            let progress_overlay = document.getElementById('progress_overlay');
+            progress_finished_timer = performance.now();
+
+        } )
+
+    } );
+}
+
 function load_scene(scene_name)
 {
-    const loader = new MeshLoader();
+    LOADED = false;
+
+    create_materials()
 
     ////////////////////////////////////////////////////////////////////////////////////
     // Create three.js scene
     scene = new Scene();
     ////////////////////////////////////////////////////////////////////////////////////
 
-    LOADED = false;
-
     progress_bar.setText('loading meshes...');
     progress_bar.animate(0.0);
 
-    const textureLoader = new TextureLoader();
-    let env_map_file = 'textures/envmaps/Alexs_Apt_8k.png';
-    let textureEquirec = textureLoader.load(env_map_file,
-    function ( env_texture ) {
-            console.log('-> loaded env map: ', env_map_file);
-            scene.background          = env_texture;
-            openpbrMaterial.envMap    = env_texture;
-            neutralMaterial.envMap    = env_texture;
-            //pathtracedMaterial.envMap = env_texture;
-            openpbrMaterial.uniforms.envMap.value = env_texture;
-            neutralMaterial.uniforms.envMap.value = env_texture;
-            //pathtracedMaterial.uniforms.envMap.value = env_texture;
-            env_texture.mapping = EquirectangularReflectionMapping ;
-            env_texture.colorSpace = SRGBColorSpace;
-
-            loader.load(scene_name + '/neutral_objects.glb').then( () => {
-
-                // Set up rasterization for this scene
-                loader.result.scene.traverse((o) => {
-                    if (o.isMesh)
-                    {
-                        o.material = neutralMaterial;
-                        o.receiveShadow = true;
-                        o.castShadow = false;
-                        o.material.side = DoubleSide;
-                    }
-                });
-
-                scene.add(loader.result.scene);
-
-                // Set up pathtracing for this scene
-                MESH_PROPS = loader.result.mesh;
-                BVH_PROPS  = loader.result.bvh;
-                pathtracedMaterial.uniforms.bvh_props.value.updateFrom( BVH_PROPS );
-                pathtracedMaterial.uniforms.has_normals_props.value = false;
-                pathtracedMaterial.uniforms.has_tangents_props.value = false;
-                if (MESH_PROPS.geometry.attributes.normal)
-                {
-                    pathtracedMaterial.uniforms.normalAttribute_props.value.updateFrom( MESH_PROPS.geometry.attributes.normal );
-                    pathtracedMaterial.uniforms.has_normals_props.value = true;
+    // Load env map
+    if (!env_map_texture)
+    {
+        const textureLoader = new TextureLoader();
+        let env_map_path = 'textures/envmaps/Alexs_Apt_8k.png';
+        let textureEquirec = textureLoader.load(env_map_path,
+            function (texture) {
+                console.log('-> loaded env map: ', env_map_path);
+                    env_map_texture = texture;
+                    load_geometry(scene_name);
                 }
-                if (MESH_PROPS.geometry.attributes.tangent)
-                {
-                    pathtracedMaterial.uniforms.tangentAttribute_props.value.updateFrom( MESH_PROPS.geometry.attributes.tangent );
-                    pathtracedMaterial.uniforms.has_tangents_props.value = true;
-                }
-                console.log("  has_normals_scene:  ", pathtracedMaterial.uniforms.has_normals_props);
-                console.log("  has_tangents_scene: ", pathtracedMaterial.uniforms.has_tangents_props);
-
-                progress_bar.animate(0.5);
-                loader.reset();
-                loader.load(scene_name + '/openpbr_objects.glb').then( () => {
-
-                    // Set up rasterization for this scene
-                    loader.result.scene.traverse((o) => {
-                        if (o.isMesh)
-                        {
-                            o.material = openpbrMaterial;
-                            o.receiveShadow = true;
-                            o.castShadow = true;
-                        }
-                    });
-
-                    scene.add(loader.result.scene);
-
-                    // Set up pathtracing for this scene
-                    MESH_SURFACE = loader.result.mesh;
-                    BVH_SURFACE  = loader.result.bvh;
-                    pathtracedMaterial.uniforms.bvh_surface.value.updateFrom( BVH_SURFACE );
-                    pathtracedMaterial.uniforms.has_normals_surface.value = false;
-                    pathtracedMaterial.uniforms.has_tangents_surface.value = false;
-                    if (MESH_SURFACE.geometry.attributes.normal)
-                    {
-                        pathtracedMaterial.uniforms.normalAttribute_surface.value.updateFrom( MESH_SURFACE.geometry.attributes.normal );
-                        pathtracedMaterial.uniforms.has_normals_surface.value = true;
-                    }
-                    if (MESH_SURFACE.geometry.attributes.tangent)
-                    {
-                        pathtracedMaterial.uniforms.tangentAttribute_surface.value.updateFrom( MESH_SURFACE.geometry.attributes.tangent );
-                        pathtracedMaterial.uniforms.has_tangents_surface.value = true;
-                    }
-                    console.log("  has_normals_surface:  ", pathtracedMaterial.uniforms.has_normals_surface);
-                    console.log("  has_tangents_surface: ", pathtracedMaterial.uniforms.has_tangents_surface);
-
-                    console.log("===> LOADED");
-
-                    neutralMaterial.needsUpdate = true;
-                    openpbrMaterial.needsUpdate = true;
-                    pathtracedMaterial.needsUpdate = true;
-
-                    post_load_setup();
-
-                    LOADED = true;
-
-                    progress_bar.animate(1.0);
-                    let progress_overlay = document.getElementById('progress_overlay');
-                    progress_finished_timer = performance.now();
-
-                } )
-
-            } );
-        }
-    );
-
+        );
+    }
+    else
+        load_geometry(scene_name);
 }
 
 function reset_camera(scene_name)
@@ -767,33 +848,33 @@ function reset_camera(scene_name)
 
     if (scene_name == 'standard-shader-ball')
     {
-    // Set camera default orientation according to the Standard Shader Ball USD asset description:
-    matrixWorld.set( 0.9396926207859084,                  0, -0.3420201433256687, 0,
-                    -0.2203032561704394, 0.7649214009184319, -0.6052782217606094, 0,
-                    0.26161852717499334, 0.6441236297613865,  0.7187909959242699, 0,
-                    6.531538924716362,               19.5,  17.948521838355774, 1 );
+        // Set camera default orientation according to the Standard Shader Ball USD asset description:
+        matrixWorld.set( 0.9396926207859084,                  0, -0.3420201433256687, 0,
+                        -0.2203032561704394, 0.7649214009184319, -0.6052782217606094, 0,
+                        0.26161852717499334, 0.6441236297613865,  0.7187909959242699, 0,
+                        6.531538924716362,               19.5,  17.948521838355774, 1 );
     }
     else if (scene_name == 'glavenus')
     {
-    matrixWorld.set( 0.4848291963218869, -6.938893903907228e-18, -0.8746088556571293,   0,
-                    -0.07533009256065425, 0.9962839037303908,    -0.041758356319859954, 0,
-                        0.8713587249512548,  0.08613003638530015,    0.4830275243540376,   0,
-                    23.076273094000275,   6.7653774216248,        14.822630983786677,   1);
+        matrixWorld.set( 0.4848291963218869, -6.938893903907228e-18, -0.8746088556571293,   0,
+                        -0.07533009256065425, 0.9962839037303908,    -0.041758356319859954, 0,
+                            0.8713587249512548,  0.08613003638530015,    0.4830275243540376,   0,
+                        23.076273094000275,   6.7653774216248,        14.822630983786677,   1);
 
     }
     else if (scene_name == 'terrain')
     {
-    matrixWorld.set( 0.7242953632536803, -1.1102230246251565e-16, -0.6894898307946385, 0,
-                    -0.4511571209928634,  0.7562050657737049,     -0.4739315886028461, 0,
-                        0.5213957028463604,  0.6543346991396579,      0.5477158228088388, 0,
-                        8.561709328489492,  11.460860759783042,       8.95672568146927,   1);
+        matrixWorld.set( 0.7242953632536803, -1.1102230246251565e-16, -0.6894898307946385, 0,
+                        -0.4511571209928634,  0.7562050657737049,     -0.4739315886028461, 0,
+                            0.5213957028463604,  0.6543346991396579,      0.5477158228088388, 0,
+                            8.561709328489492,  11.460860759783042,       8.95672568146927,   1);
     }
     else if (scene_name == 'bearded-man')
     {
-    matrixWorld.set(0.6586894440882616, -1.3877787807814457e-17, 0.752414922929295,   0,
-                    0.13367205033823076, 0.9840924050751759,    -0.11702102901499911, 0,
-                    -0.7404458111199431,  0.17765736200156684,    0.648211279230448,   0,
-                    -20.089277049402824,   9.131027464916848,     18.02162149148976,    1);
+        matrixWorld.set(0.6586894440882616, -1.3877787807814457e-17, 0.752414922929295,   0,
+                        0.13367205033823076, 0.9840924050751759,    -0.11702102901499911, 0,
+                        -0.7404458111199431,  0.17765736200156684,    0.648211279230448,   0,
+                        -20.089277049402824,   9.131027464916848,     18.02162149148976,    1);
     }
 
     matrixWorld.transpose();
@@ -813,112 +894,11 @@ function reset_camera(scene_name)
     orbitControls.update();
 }
 
-function coat_enabled()
+
+function setup_gui()
 {
-    if (params.coat_weight == 0.0)
-    return false;
-    return true;
-    }
-
-function volume_enabled()
-{
-    if (params.base_metalness == 1.0)
-    return false;
-    if (params.transmission_weight > 0.0 &&
-    params.transmission_depth > 0.0)
-    return true;
-    if (params.subsurface_weight > 0.0)
-    return true;
-    return false;
-}
-
-function transmission_enabled()
-{
-    if (params.transmission_weight > 0.0)
-    return true;
-    if (params.subsurface_weight > 0.0)
-    return true;
-    return false;
-}
-
-function dispersion_enabled()
-{
-    if (params.transmission_dispersion_scale > 0.0)
-    return true;
-    return false;
-}
-
-function thin_film_enabled()
-{
-    if (params.thin_film_weight > 0.0)
-    return true;
-    return false;
-}
-
-function post_load_setup()
-{
-    //////////////////////////////////////////////////////////
-    // Setup THREE.js lighting
-    //////////////////////////////////////////////////////////
-
-    directionalLight = new DirectionalLight(0xffffff, 1.0);
-
-    updateSunDir()
-    let dL = 20.0;
-    directionalLight.position.set(MESH_PROPS.position[0] + dL*params.sunDir[0],
-                                MESH_PROPS.position[1] + dL*params.sunDir[1],
-                                MESH_PROPS.position[2] + dL*params.sunDir[2]);
-    directionalLight.target.position.copy( MESH_PROPS.position );
-    directionalLight.castShadow = true; // default false
-
-    //Set up shadow properties for the directionalLight
-    directionalLight.shadow.mapSize.width  = 2048; // default
-    directionalLight.shadow.mapSize.height = 2048; // default
-
-    let shadow_extent = 9.0;
-    directionalLight.shadow.camera.left   = -shadow_extent;
-    directionalLight.shadow.camera.right  =  shadow_extent;
-    directionalLight.shadow.camera.bottom = -shadow_extent;
-    directionalLight.shadow.camera.top    =  shadow_extent;
-    directionalLight.shadow.camera.near = 10.0; // default
-    directionalLight.shadow.camera.far = 100.0; // default
-    directionalLight.shadowDarkness = 0.0;
-    scene.add( directionalLight );
-
-    ambientLight = new AmbientLight( 0x0 );
-    scene.add( ambientLight );
-
-    // NB, add this helper to debug shadow map issues
-    //const helper = new CameraHelper(directionalLight.shadow.camera);
-    //scene.add(helper);
-
-    //////////////////////////////////////////////////////////
-    // Setup framebuffers
-    //////////////////////////////////////////////////////////
-
-    console.log(scene)
-
-    pathtracedQuad = new FullScreenQuad( pathtracedMaterial );
-
-    pathtracedMaterial.transparent = true;
-    pathtracedMaterial.depthWrite = false;
-
-    pathtracingRenderTarget = new WebGLRenderTarget(1, 1, {format: RGBAFormat, type: FloatType, colorSpace: LinearSRGBColorSpace});
-    pathtracedFinalQuad = new FullScreenQuad( new MeshBasicMaterial({map: pathtracingRenderTarget.texture}) );
-
-    // Trigger initial shader compile
-    trigger_recompile();
-
-    //////////////////////////////////////////////////////////
-    // Setup camera
-    //////////////////////////////////////////////////////////
-
-    reset_camera(params.scene_name);
-
-    //////////////////////////////////////////////////////////
-    // Setup GUI
-    //////////////////////////////////////////////////////////
-
+    if (gui)
+        gui.destroy()
     gui = new GUI({ width: 300 });
 
     ///// Material folder /////////////////////////////////////
@@ -930,12 +910,9 @@ function post_load_setup()
     base_folder.addColor(params,     'base_color').onChange(                                          v => { resetSamples(); });
     base_folder.add(params,          'base_roughness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
     base_folder.add(params,          'base_metalness', 0.0, 1.0).onChange(                            v => { resetSamples();
-                                                                                                            if (volume_enabled() != pathtracedMaterial.defines.VOLUME_ENABLED)
-                                                                                                            {
-                                                                                                                pathtracedMaterial.defines.VOLUME_ENABLED = volume_enabled();
-                                                                                                                trigger_recompile();
-                                                                                                            }});
-    base_folder.add(params,           'diffuse_mode', diffuse_mode_names).onChange(                   v => { resetSamples(); });
+                                                                                                            if (volume_enabled() != materialDefines.VOLUME_ENABLED)
+                                                                                                                load_scene(params.scene_name);
+                                                                                                            });
 
     // Specular folder
     const specular_folder = material_folder.addFolder('Specular');
@@ -949,64 +926,45 @@ function post_load_setup()
     // Transmission folder
     const transmission_folder = material_folder.addFolder('Transmission');
     transmission_folder.add(params,      'transmission_weight', 0.0, 1.0).onChange(                   v => { resetSamples();
-                                                                                                            if (volume_enabled() != pathtracedMaterial.defines.VOLUME_ENABLED)
-                                                                                                            {
-                                                                                                                pathtracedMaterial.defines.VOLUME_ENABLED = volume_enabled();
-                                                                                                                trigger_recompile();
-                                                                                                            }
-                                                                                                            if (transmission_enabled() != pathtracedMaterial.defines.TRANSMISSION_ENABLED)
-                                                                                                            {
-                                                                                                                pathtracedMaterial.defines.TRANSMISSION_ENABLED = transmission_enabled();
-                                                                                                                trigger_recompile();
-                                                                                                            }
+                                                                                                            if (volume_enabled() != materialDefines.VOLUME_ENABLED)
+                                                                                                                load_scene(params.scene_name);
+                                                                                                            if (transmission_enabled() != materialDefines.TRANSMISSION_ENABLED)
+                                                                                                                load_scene(params.scene_name);
                                                                                                         });
     transmission_folder.addColor(params, 'transmission_color').onChange(                              v => { resetSamples(); });
     transmission_folder.add(params,      'transmission_depth', 0.0, 1.0).onChange(                    v => { resetSamples();
-                                                                                                            if (volume_enabled() != pathtracedMaterial.defines.VOLUME_ENABLED)
+                                                                                                            if (volume_enabled() != materialDefines.VOLUME_ENABLED)
                                                                                                             {
-                                                                                                                pathtracedMaterial.defines.VOLUME_ENABLED = volume_enabled();
-                                                                                                                trigger_recompile();
+                                                                                                                load_scene(params.scene_name);
                                                                                                             }});
     transmission_folder.addColor(params, 'transmission_scatter').onChange(                            v => { resetSamples(); });
     transmission_folder.add(params,      'transmission_scatter_anisotropy', -1.0, 1.0).onChange(      v => { resetSamples(); });
     transmission_folder.add(params,      'transmission_dispersion_abbe_number', 9.0, 91.0).onChange(  v => { resetSamples(); });
     transmission_folder.add(params,      'transmission_dispersion_scale', 0.0, 1.0).onChange(         v => { resetSamples();
-                                                                                                            if (dispersion_enabled() != pathtracedMaterial.defines.DISPERSION_ENABLED)
-                                                                                                            {
-                                                                                                                pathtracedMaterial.defines.DISPERSION_ENABLED = dispersion_enabled();
-                                                                                                                trigger_recompile();
-                                                                                                            }});
+                                                                                                            if (dispersion_enabled() != materialDefines.DISPERSION_ENABLED)
+                                                                                                                load_scene(params.scene_name);
+                                                                                                            });
     transmission_folder.close();
 
     // Subsurface folder
     const subsurface_folder = material_folder.addFolder('Subsurface');
     subsurface_folder.add(params,      'subsurface_weight', 0.0, 1.0).onChange(                       v => { resetSamples();
-                                                                                                            if (volume_enabled() != pathtracedMaterial.defines.VOLUME_ENABLED)
-                                                                                                            {
-                                                                                                                pathtracedMaterial.defines.VOLUME_ENABLED = volume_enabled();
-                                                                                                                trigger_recompile();
-                                                                                                            }
-                                                                                                            if (transmission_enabled() != pathtracedMaterial.defines.TRANSMISSION_ENABLED)
-                                                                                                            {
-                                                                                                                pathtracedMaterial.defines.TRANSMISSION_ENABLED = transmission_enabled();
-                                                                                                                trigger_recompile();
-                                                                                                            }
+                                                                                                            if (volume_enabled() != materialDefines.VOLUME_ENABLED)
+                                                                                                                load_scene(params.scene_name);
+                                                                                                            if (transmission_enabled() != materialDefines.TRANSMISSION_ENABLED)
+                                                                                                                load_scene(params.scene_name);
                                                                                                         });
     subsurface_folder.addColor(params, 'subsurface_color').onChange(                                  v => { resetSamples(); });
     subsurface_folder.add(params,      'subsurface_radius', 0.0, 1.0).onChange(                       v => { resetSamples(); });
     subsurface_folder.addColor(params, 'subsurface_radius_scale').onChange(                           v => { resetSamples(); });
     subsurface_folder.add(params,      'subsurface_anisotropy', -1.0, 1.0).onChange(                  v => { resetSamples(); });
-    subsurface_folder.add(params,      'subsurface_mode', subsurface_mode_names).onChange(            v => { resetSamples(); });
     subsurface_folder.close();
 
     // Coat folder
     const coat_folder = material_folder.addFolder('Coat');
     coat_folder.add(params,          'coat_weight', 0.0, 1.0).onChange(                               v => { resetSamples();
-                                                                                                            if (coat_enabled() != pathtracedMaterial.defines.COAT_ENABLED)
-                                                                                                            {
-                                                                                                                pathtracedMaterial.defines.COAT_ENABLED = coat_enabled();
-                                                                                                                trigger_recompile();
-                                                                                                            }});
+                                                                                                            if (coat_enabled() != materialDefines.COAT_ENABLED)
+                                                                                                                load_scene(params.scene_name); });
     coat_folder.addColor(params,     'coat_color').onChange(                                          v => { resetSamples(); });
     coat_folder.add(params,          'coat_roughness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
     coat_folder.add(params,          'coat_ior', 1.0, 3.0).onChange(                                  v => { resetSamples(); });
@@ -1017,7 +975,9 @@ function post_load_setup()
 
     // Fuzz folder
     const fuzz_folder = material_folder.addFolder('Fuzz');
-    fuzz_folder.add(params,          'fuzz_weight', 0.0, 1.0).onChange(                               v => { resetSamples(); });
+    fuzz_folder.add(params,          'fuzz_weight', 0.0, 1.0).onChange(                               v => { resetSamples();
+                                                                                                            if (fuzz_enabled() != materialDefines.FUZZ_ENABLED)
+                                                                                                                load_scene(params.scene_name); });
     fuzz_folder.addColor(params,     'fuzz_color').onChange(                                          v => { resetSamples(); });
     fuzz_folder.add(params,          'fuzz_roughness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
     fuzz_folder.close();
@@ -1031,11 +991,8 @@ function post_load_setup()
     // Thin-film folder
     const thin_film_folder = material_folder.addFolder('Thin Film');
     thin_film_folder.add(params,          'thin_film_weight', 0.0, 1.0).onChange(                     v => { resetSamples();
-                                                                                                        if (thin_film_enabled() != pathtracedMaterial.defines.THIN_FILM_ENABLED)
-                                                                                                        {
-                                                                                                            pathtracedMaterial.defines.THIN_FILM_ENABLED = thin_film_enabled();
-                                                                                                            trigger_recompile();
-                                                                                                        }});
+                                                                                                        if (thin_film_enabled() != materialDefines.THIN_FILM_ENABLED)
+                                                                                                            load_scene(params.scene_name); });
     thin_film_folder.add(params,          'thin_film_thickness', 0.0, 2000.0).onChange(               v => { resetSamples(); });
     thin_film_folder.add(params,          'thin_film_ior', 1.0, 3.0).onChange(                        v => { resetSamples(); });
     thin_film_folder.close();
@@ -1045,7 +1002,6 @@ function post_load_setup()
     geometry_folder.add(params,      'geometry_opacity', 0.0, 1.0).onChange(                          v => { resetSamples(); });
     geometry_folder.add(params,      'geometry_thin_walled').onChange(                                v => { resetSamples(); });
     geometry_folder.close();
-
 
     ///// Lighting folder /////////////////////////////////////
     const lighting_folder = gui.addFolder('Lighting');
@@ -1058,7 +1014,6 @@ function post_load_setup()
     lighting_folder.addColor(params, 'sunColor').onChange(                                            v => { resetSamples(); });
     lighting_folder.close();
 
-
     ///// Renderer folder /////////////////////////////////////
     const renderer_folder = gui.addFolder('Renderer');
 
@@ -1069,32 +1024,99 @@ function post_load_setup()
     renderer_folder.add( params, 'smooth_normals' ).onChange(                                         v => { resetSamples(); });
     renderer_folder.add( params, 'wireframe' ).onChange(                                              v => { resetSamples(); });
     renderer_folder.addColor(params, 'neutral_color').onChange(                                       v => { resetSamples(); });
-    renderer_folder.add( params, 'bounces', 0, 100, 1 ).onChange(                                     v => { pathtracedMaterial.defines.BOUNCES = parseInt( v );
+    renderer_folder.add( params, 'bounces', 0, 100, 1 ).onChange(                                     v => { materialDefines.BOUNCES = parseInt( v );
                                                                                                             resetSamples();
-                                                                                                            trigger_recompile(); });
+                                                                                                            load_scene(params.scene_name); });
     renderer_folder.add( params, 'max_samples' ).onChange(                                            v => { resetSamples(); });
-    renderer_folder.add( params, 'max_volume_steps', 1, 100, 1 ).onChange(                            v => { pathtracedMaterial.defines.MAX_VOLUME_STEPS = parseInt( v );
+    renderer_folder.add( params, 'max_volume_steps', 1, 100, 1 ).onChange(                            v => { materialDefines.MAX_VOLUME_STEPS = parseInt( v );
                                                                                                             resetSamples();
-                                                                                                            trigger_recompile(); });
+                                                                                                            load_scene(params.scene_name); });
     renderer_folder.close();
 
     gui.add( params, 'reset_camera' );
     gui.open();
+}
+
+function post_load_setup()
+{
+    console.log(scene);
+
+    if (!PATHTRACING)
+    {
+        //////////////////////////////////////////////////////////
+        // Setup THREE.js lighting
+        //////////////////////////////////////////////////////////
+
+        directionalLight = new DirectionalLight(0xffffff, 1.0);
+
+        updateSunDir()
+        let dL = 20.0;
+        directionalLight.position.set(MESH_PROPS.position[0] + dL*params.sunDir[0],
+                                      MESH_PROPS.position[1] + dL*params.sunDir[1],
+                                      MESH_PROPS.position[2] + dL*params.sunDir[2]);
+        directionalLight.target.position.copy( MESH_PROPS.position );
+        directionalLight.castShadow = true; // default false
+
+        //Set up shadow properties for the directionalLight
+        directionalLight.shadow.mapSize.width  = 2048; // default
+        directionalLight.shadow.mapSize.height = 2048; // default
+
+        let shadow_extent = 9.0;
+        directionalLight.shadow.camera.left   = -shadow_extent;
+        directionalLight.shadow.camera.right  =  shadow_extent;
+        directionalLight.shadow.camera.bottom = -shadow_extent;
+        directionalLight.shadow.camera.top    =  shadow_extent;
+        directionalLight.shadow.camera.near = 10.0; // default
+        directionalLight.shadow.camera.far = 100.0; // default
+        directionalLight.shadowDarkness = 0.0;
+        scene.add( directionalLight );
+
+        ambientLight = new AmbientLight( 0x0 );
+        scene.add( ambientLight );
+
+        // NB, add this helper to debug shadow map issues
+        //const helper = new CameraHelper(directionalLight.shadow.camera);
+        //scene.add(helper);
+    }
+
+    if (PATHTRACING)
+    {
+        //////////////////////////////////////////////////////////
+        // Setup framebuffers for pathtracing
+        //////////////////////////////////////////////////////////
+        pathtracedQuad = new FullScreenQuad( pathtracedMaterial );
+
+        pathtracedMaterial.transparent = true;
+        pathtracedMaterial.depthWrite = false;
+
+        pathtracingRenderTarget = new WebGLRenderTarget(1, 1, {format: RGBAFormat, type: FloatType, colorSpace: LinearSRGBColorSpace});
+        pathtracedFinalQuad = new FullScreenQuad( new MeshBasicMaterial({map: pathtracingRenderTarget.texture}) );
+    }
+
+    // Trigger initial shader compile
+    trigger_recompile();
+
+    //////////////////////////////////////////////////////////
+    // Setup camera
+    //////////////////////////////////////////////////////////
+    if (!camera_initialized)
+        reset_camera(params.scene_name);
+    camera_initialized = true;
+
+    //////////////////////////////////////////////////////////
+    // Setup GUI
+    //////////////////////////////////////////////////////////
+    setup_gui();
 
     //////////////////////////////////////////////////////////
     // Setup window
     //////////////////////////////////////////////////////////
-
     window.addEventListener( 'resize', resize, false );
     resize();
 }
 
 function trigger_recompile()
 {
-    //neutralMaterial.needsUpdate = true;
-    //openpbrMaterial.needsUpdate = true;
-    //pathtracedMaterial.needsUpdate = true;
-
     let tmp_cam = new OrthographicCamera( - 1, 1, 1, - 1, 0, 1 );
     startCompilationProgress();
     let compile_promise = renderer.compileAsync(scene, tmp_cam);
@@ -1106,8 +1128,9 @@ function trigger_recompile()
     }).finally(() => {});
     }
 
-    function startCompilationProgress()
-    {
+function startCompilationProgress()
+{
+    console.log('startCompilationProgress');
     let progress_overlay = document.getElementById('progress_overlay');
     progress_overlay.style.display = 'block';
     progress_overlay.style.opacity = 1;
@@ -1118,12 +1141,10 @@ function trigger_recompile()
 
 function finishCompilationProgress()
 {
+    console.log('finishCompilationProgress');
     progress_bar.set(1.0);
     progress_finished_timer = performance.now();
     COMPILING = false;
-
-    //if (pathtracedMaterial) pathtracedMaterial.needsUpdate = true;
-    //if (openpbrMaterial) openpbrMaterial.needsUpdate = true;
 }
 
 function resize()
@@ -1134,7 +1155,8 @@ function resize()
     const h = window.innerHeight;
     renderer.setSize( w, h );
     renderer.setPixelRatio(1.0);
-    pathtracingRenderTarget.setSize(w, h);
+    if (PATHTRACING)
+        pathtracingRenderTarget.setSize(w, h);
     resetSamples();
 }
 
@@ -1145,8 +1167,6 @@ function get_vector3(array3)
 
 function resetSamples()
 {
-    //if (pathtracedMaterial)
-    //    pathtracedMaterial.needsUpdate = true;
     samples = 0;
 }
 
@@ -1192,7 +1212,6 @@ function sync_shader_uniforms(uniforms)
     uniforms.base_color.value.copy(get_vector3(             params.base_color));
     uniforms.base_roughness.value                         = params.base_roughness;
     uniforms.base_metalness.value                         = params.base_metalness;
-    uniforms.diffuse_mode.value                           = params.diffuse_mode;
 
     uniforms.specular_weight.value                        = params.specular_weight;
     uniforms.specular_color.value.copy(get_vector3(         params.specular_color));
@@ -1214,7 +1233,6 @@ function sync_shader_uniforms(uniforms)
     uniforms.subsurface_radius.value                      = params.subsurface_radius;
     uniforms.subsurface_radius_scale.value.copy(get_vector3(params.subsurface_radius_scale));
     uniforms.subsurface_anisotropy.value                  = params.subsurface_anisotropy;
-    uniforms.subsurface_mode.value                        = params.subsurface_mode;
 
     uniforms.coat_weight.value                            = params.coat_weight;
     uniforms.coat_color.value.copy(get_vector3(             params.coat_color));
@@ -1303,8 +1321,8 @@ function render()
 
             let dL = 20.0;
             directionalLight.position.set(MESH_PROPS.position.x + dL*params.sunDir[0],
-                                            MESH_PROPS.position.y + dL*params.sunDir[1],
-                                            MESH_PROPS.position.z + dL*params.sunDir[2]);
+                                          MESH_PROPS.position.y + dL*params.sunDir[1],
+                                          MESH_PROPS.position.z + dL*params.sunDir[2]);
             directionalLight.intensity = Math.pow(10.0, params.sunPower);
             let sunColor3 = new Color(params.sunColor[0], params.sunColor[1], params.sunColor[2]);
             directionalLight.color = sunColor3.getHex();
@@ -1349,6 +1367,7 @@ function render()
 
     if (COMPILING)
     {
+        console.log('COMPILING...');
         if (progress_bar.value() < 0.01)
             progress_bar.animate(1.0);
         else if (progress_bar.value() > 0.99)
@@ -1481,8 +1500,7 @@ document.onkeydown = function (event)
         case 82: // R key: toggle between rasterizer and pathtracer
         {
             PATHTRACING = !PATHTRACING;
-            trigger_recompile();
-            resetSamples();
+            load_scene(params.scene_name);
             break;
         }
     }

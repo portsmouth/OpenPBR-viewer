@@ -1,5 +1,5 @@
 
-//#include <envmap_common_pars_fragment>
+#include <envmap_common_pars_fragment>
 
 //////////////////////////////////////////////////////
 // camera uniforms
@@ -44,7 +44,6 @@ uniform float base_weight;
 uniform vec3  base_color;
 uniform float base_roughness;
 uniform float base_metalness;
-uniform int   diffuse_mode; // FOR TESTING
 
 uniform float specular_weight;
 uniform vec3  specular_color;
@@ -66,7 +65,6 @@ uniform vec3  subsurface_color;
 uniform float subsurface_radius;
 uniform vec3  subsurface_radius_scale;
 uniform float subsurface_anisotropy;
-uniform int   subsurface_mode; // FOR TESTING
 
 uniform float coat_weight;
 uniform vec3  coat_color;
