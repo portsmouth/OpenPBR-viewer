@@ -779,15 +779,15 @@ void main()
 
             // diffuse contribution
             {
-                //vec4 diff_env = textureLod(envMap, vec3(Lworld.x, Lworld.yz), 100.0);
-                //radiance += skyColor * skyPower * diff_env.rgb * diffuse_albedo(Vlocal, lobe_weights, pbr);
+                vec4 diff_env = textureLod(envMap, vec3(Lworld.x, Lworld.yz), 100.0);
+                radiance += skyColor * skyPower * diff_env.rgb * diffuse_albedo(Vlocal, lobe_weights, pbr);
             }
 
             // specular contribution
             {
-                //float lod = 30.0 * specular_roughness;
-                //vec4 spec_env = textureLod(envMap, vec3(Lworld.x, Lworld.yz), lod);
-                //radiance += skyColor * skyPower * spec_env.rgb * specular_albedo(Vlocal, lobe_weights, pbr);
+                float lod = 30.0 * specular_roughness;
+                vec4 spec_env = textureLod(envMap, vec3(Lworld.x, Lworld.yz), lod);
+                radiance += skyColor * skyPower * spec_env.rgb * specular_albedo(Vlocal, lobe_weights, pbr);
             }
         }
     }
