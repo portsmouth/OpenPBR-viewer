@@ -36,7 +36,7 @@ vec3 metal_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wo
 
     // Compute Fresnel factor for the conductor reflection
     vec3 F;
-    vec3 F_nofilm = FresnelF82Tint(abs(dot(winputR, mR)), base_weight * base_color, specular_weight * specular_color);
+    vec3 F_nofilm = FresnelF82Tint(abs(dot(winputR, mR)), base_weight * base_color, specular_color);
 #ifdef THIN_FILM_ENABLED
     if (thin_film_weight > 0.0)
     {
@@ -52,7 +52,7 @@ vec3 metal_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wo
     float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
 
     // Thus evaluate BRDF
-    return F * D * G2 / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
+    return min(vec3(1.0), specular_weight*F) * D * G2 / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
 }
 
 
@@ -93,7 +93,7 @@ vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint r
 
     // Compute Fresnel factor for the conductor reflection
     vec3 F;
-    vec3 F_nofilm = FresnelF82Tint(abs(dot(winputR, mR)), base_weight * base_color, specular_weight * specular_color);
+    vec3 F_nofilm = FresnelF82Tint(abs(dot(winputR, mR)), base_weight * base_color, specular_color);
 #ifdef THIN_FILM_ENABLED
     float eta_fe = mix(thin_film_ior/ambient_ior, thin_film_ior/coat_ior, coat_weight);
     vec3 F_film = FresnelThinFilmOverConductor(abs(dot(winputR, mR)), eta_fe);
@@ -106,7 +106,7 @@ vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint r
     float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
 
     // Thus evaluate BRDF
-    return F * D * G2 / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
+    return min(vec3(1.0), specular_weight*F) * D * G2 / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
 }
 
 
@@ -116,7 +116,7 @@ vec3 metal_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uint r
     if (winputL.z < DENOM_TOLERANCE) return vec3(0.0);
 
     // Approximate albedo via Monte-Carlo sampling:
-    const int num_samples = 1;
+    const int num_samples = 4;
     vec3 albedo = vec3(0.0);
     for (int n=0; n<num_samples; ++n)
     {

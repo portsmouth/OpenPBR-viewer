@@ -1,8 +1,8 @@
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // "Specular" dielectric microfacet BRDF
+//    - NB, the specular_color tint is applied in the uber-shader, since the albedo should not involve the tint
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
 
 void specular_ndf_roughnesses(out float alpha_x, out float alpha_y)
 {
@@ -17,9 +17,12 @@ void specular_ndf_roughnesses(out float alpha_x, out float alpha_y)
 
 float eta_s()
 {
-    float coat_ior_average = mix(ambient_ior, coat_ior, coat_weight);
-    float eta_s = specular_ior / coat_ior_average;
-    return eta_s;
+    // Flip spec/coat IOR ratio if needed to keep it > 1, to correct for lack of refraction in coat
+    float eta_sc = specular_ior/coat_ior;
+    if (eta_sc < 1.0)
+        eta_sc = 1.0 / eta_sc;
+    const float ambient_ior = 1.0;
+    return mix(specular_ior/ambient_ior, eta_sc, coat_weight);
 }
 
 float fresnel_refl_normal_incidence()
@@ -41,27 +44,6 @@ float specular_ior_ratio()
     return eta_s_prime;
 }
 
-vec3 fresnel_refl_accounting_for_coat(float mui, float eta_bc)
-{
-    // Compute correct Fresnel reflection factor at specular boundary, taking into account coat refraction,
-    // to avoid TIR artifact:
-    //  - mu_i is angle cosine of ray incident from exterior of surface
-    //  - eta_bc is the ratio of base specular IOR to coat IOR
-    float eta_ca = coat_ior / ambient_ior;
-    float eta_ba = specular_ior / ambient_ior;
-    // muc is the resulting angle cosine of the ray refracted into the coat, assuming smooth boundaries
-    float muc = sqrt(1.0 - (1.0 - sqr(mui))/sqr(eta_ca));
-    float eta_ti = mix(eta_ba, eta_bc, coat_weight);
-    vec3 F;
-    vec3 F_nofilm = vec3(FresnelDielectricReflectance(muc, eta_ti));
-#ifdef THIN_FILM_ENABLED
-    vec3 F_film = FresnelThinFilmOverDielectric(muc, eta_ti);
-    return mix(F_nofilm, F_film, thin_film_weight);
-#else
-    return F_nofilm;
-#endif // THIN_FILM_ENABLED;
-}
-
 vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
                             inout float pdf_woutputL)
 {
@@ -80,9 +62,6 @@ vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
     float eta_ti_refl = external_reflection ? eta_ie : 1.0/eta_ie;
     if (abs(eta_ti_refl - 1.0) < IOR_EPSILON) // degenerate case of index-matched interface, BRDF goes to zero
         return vec3(0.0);
-
-    // Non-physical Fresnel tint to apply
-    vec3 tint = specular_color;
 
    // Compute the NDF roughnesses in the rotated frame
     float alpha_x, alpha_y;
@@ -112,17 +91,11 @@ vec3 specular_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
     float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
 
     // Compute Fresnel factor for the dielectric reflection
-    vec3 F;
-#ifdef COAT_ENABLED
-    if (external_reflection)
-        F = fresnel_refl_accounting_for_coat(abs(dot(winputR, mR)), eta_ti_refl);
-    else
-#endif // COAT_ENABLED
-        F = vec3(FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl));
+    float F = FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl);
 
     // Thus evaluate BRDF.
-    vec3 f = F * D * G2 / max(4.0 * abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
-    return f * tint;
+    float f = F * D * G2 / max(4.0 * abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
+    return vec3(f);
 }
 
 
@@ -140,9 +113,6 @@ vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     float eta_ti_refl = external_reflection ? eta_ie : 1.0/eta_ie;
     if (abs(eta_ti_refl - 1.0) < IOR_EPSILON) // degenerate case of index-matched interface, BRDF goes to zero
         return vec3(0.0);
-
-    // Non-physical Fresnel tint to apply
-    vec3 tint = specular_color;
 
     // Compute the NDF roughnesses in the rotated frame
     float alpha_x, alpha_y;
@@ -188,17 +158,11 @@ vec3 specular_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
 
     // Compute Fresnel factor for the dielectric reflection
-    vec3 F;
-#ifdef COAT_ENABLED
-    if (external_reflection)
-        F = fresnel_refl_accounting_for_coat(abs(dot(winputR, mR)), eta_ti_refl);
-    else
-#endif // COAT_ENABLED
-        F = vec3(FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl));
+    float F = FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl);
 
      // Thus evaluate BRDF.
-    vec3 f = F * D * G2 / max(4.0 * abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
-    return f * tint;
+    float f = F * D * G2 / max(4.0 * abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
+    return vec3(f);
 }
 
 
@@ -213,7 +177,7 @@ vec3 specular_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     }
 
     // Approximate albedo via Monte-Carlo sampling:
-    const int num_samples = 1;
+    const int num_samples = 4;
     vec3 albedo = vec3(0.0);
     for (int n=0; n<num_samples; ++n)
     {
