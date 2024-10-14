@@ -234,7 +234,6 @@ vec3 skyRadiance(in vec3 woutputW)
 {
     vec4 env = textureLod(envMap, vec3(woutputW.x, woutputW.yz), 0.0);
     return env.rgb * skyPower * skyColor;
-    return skyPower * skyColor;
 }
 
 float skyTotalPower()
@@ -442,12 +441,12 @@ void main()
 #endif
     bool in_dielectric = false;
 
-#ifdef DISPERSION_ENABLED
+#ifdef TRANSMISSION_ENABLED
     // Stochastically choose wavelength for potential dispersion effect
     // (here just a crude uniform sample of the visible range)
     bool dispersive = false;
     wavelength_nm = 360.0 + (700.0 - 360.0)*rand(rndSeed);
-#endif // DISPERSION_ENABLED
+#endif // TRANSMISSION_ENABLED
 
     for (int vertex=0; vertex <= BOUNCES; vertex++)
     {
@@ -585,7 +584,7 @@ void main()
         bool transmitted = (material == MATERIAL_OPENPBR) && (dot(winputW, NgW) * dot(dW, NgW) < 0.0);
         if (transmitted)
         {
-#ifdef DISPERSION_ENABLED
+#ifdef TRANSMISSION_ENABLED
             if (!in_dielectric && !dispersive)
             {
                 // On first transmission into dielectric, apply associated color of stochastically chosen wavelength
@@ -594,7 +593,7 @@ void main()
                     surface_throughput *= xyzToRgb(xyzFit_1931(wavelength_nm)) * vec3(2.7, 3.3, 3.45);
                 dispersive = true;
             }
-#endif // DISPERSION_ENABLED
+#endif // TRANSMISSION_ENABLED
 
             // Update in_dielectric state
             in_dielectric = !in_dielectric;

@@ -777,7 +777,9 @@ void main()
 
             // specular contribution
             {
-                float lod = 30.0 * specular_roughness;
+                ivec2 res = textureSize(envMap, 0);
+                int Ntex = max(res.x, res.y);
+                float lod = specular_roughness > 0.0 ? max(0.0, 1.0 + log2(float(Ntex)*sqr(specular_roughness))) : 0.0;
                 vec4 spec_env = textureLod(envMap, vec3(Lworld.x, Lworld.yz), lod);
                 radiance += skyColor * skyPower * spec_env.rgb * specular_albedo(Vlocal, lobe_weights, pbr);
             }

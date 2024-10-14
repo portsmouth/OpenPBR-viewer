@@ -483,7 +483,7 @@ vec3 samplePhaseFunction(in vec3 dW, float anisotropy, inout uint rndSeed)
 
 float wavelength_nm;
 
-#ifdef DISPERSION_ENABLED
+#ifdef TRANSMISSION_ENABLED
 // Wavelength-dependent IOR according to Cauchy formula
 float specular_ior_dispersive()
 {
@@ -497,7 +497,7 @@ float specular_ior_dispersive()
     float A = nd - B/sqr(lambda_d);
     return A + B/sqr(wavelength_nm);
 }
-#endif // DISPERSION_ENABLED
+#endif // TRANSMISSION_ENABLED
 
 
 /////////////////////////////////////////////////////////////////////////
@@ -509,8 +509,7 @@ float luminance_srgb(in vec3 C)
     return 0.2126*C.r + 0.7152*C.g + 0.0722*C.b;
 }
 
-#ifdef DISPERSION_ENABLED
-
+#ifdef TRANSMISSION_ENABLED
 // Spectrum to XYZ approx function from Sloan: http://jcgt.org/published/0002/02/01/paper.pdf
 // Inputs:  Wavelength in nanometers
 float xFit_1931(float w)
@@ -541,5 +540,4 @@ vec3 xyzToRgb(vec3 XYZ)
 	                  -0.969256 , 1.875991,  0.041556,
 	                   0.055648, -0.204043,  1.057311);
 }
-
-#endif // DISPERSION_ENABLED
+#ifdef TRANSMISSION_ENABLED
