@@ -42,17 +42,15 @@ vec3 fuzz_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
 
     float NdotV = min(winputL.z, 1.0);
     float roughness = clamp(fuzz_roughness, 0.01, 1.0); // Clamp to the range of the original impl.
-
     mat3 toLTC = transpose(orthonormal_basis_ltc(winputL));
     vec3 w = toLTC * woutputL;
-
-    float aInv = zeltner_sheen_ltc_aInv(NdotV, roughness);
-    float bInv = zeltner_sheen_ltc_bInv(NdotV, roughness);
 
     // Transform w to original configuration (clamped cosine).
     //                 |aInv    0 bInv|
     // wo = M^-1 . w = |   0 aInv    0| . w
     //                 |   0    0    1|
+    float aInv = zeltner_sheen_ltc_aInv(NdotV, roughness);
+    float bInv = zeltner_sheen_ltc_bInv(NdotV, roughness);
     vec3 wo = vec3(aInv*w.x + bInv*w.z, aInv * w.y, w.z);
     float lenSqr = dot(wo, wo);
 
@@ -63,9 +61,7 @@ vec3 fuzz_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
     //      = Do(wo) . (aInv / dot(wo, wo))^2
     float jacobian = sqr(aInv / lenSqr);
     pdf_woutputL = max(wo.z, 0.0) * RECIPROCAL_PI * jacobian;
-
     float albedo = zeltner_sheen_dir_albedo(NdotV, roughness);
-
     float NdotL = max(abs(woutputL.z), FLT_EPSILON);
     return fuzz_color * albedo * pdf_woutputL / NdotL;
 #else
@@ -78,22 +74,18 @@ vec3 fuzz_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rn
 {
 #ifdef FUZZ_ENABLED
     if (winputL.z < DENOM_TOLERANCE) return vec3(0.0);
-
     float NdotV = min(winputL.z, 1.0);
     float roughness = clamp(fuzz_roughness, 0.01, 1.0); // Clamp to the range of the original impl.
-
     float pdf_unused;
     vec3 wo = sampleHemisphereCosineWeighted(rndSeed, pdf_unused);
-
-    float aInv = zeltner_sheen_ltc_aInv(NdotV, roughness);
-    float bInv = zeltner_sheen_ltc_bInv(NdotV, roughness);
 
     // Transform wo from original configuration (clamped cosine).
     //              |1/aInv      0 -bInv/aInv|
     // w = M . wo = |     0 1/aInv          0| . wo
     //              |     0      0          1|
+    float aInv = zeltner_sheen_ltc_aInv(NdotV, roughness);
+    float bInv = zeltner_sheen_ltc_bInv(NdotV, roughness);
     vec3 w = vec3(wo.x/aInv - wo.z*bInv/aInv, wo.y / aInv, wo.z);
-
     float lenSqr = dot(w, w);
     w *= inversesqrt(lenSqr);
 
@@ -104,12 +96,9 @@ vec3 fuzz_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rn
     //      = Do(w) . (aInv * dot(w, w))^2
     float jacobian = sqr(aInv * lenSqr);
     pdf_woutputL = max(w.z, 0.0) * RECIPROCAL_PI * jacobian;
-
     mat3 fromLTC = orthonormal_basis_ltc(winputL);
     woutputL = fromLTC * w;
-
     float albedo = zeltner_sheen_dir_albedo(NdotV, roughness);
-
     return fuzz_color * albedo * RECIPROCAL_PI * jacobian; // NdotL cancelled.
 #else
     return vec3(0.0);

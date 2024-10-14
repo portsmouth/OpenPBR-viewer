@@ -6,67 +6,6 @@
 #define constant1_FON (0.5 - 2.0/(3.0*PI))
 #define constant2_FON (2.0/3.0 - 28.0/(15.0*PI))
 
-void ltc_coeffs(in vec3 wo, float r, inout float a, inout float b)
-{
-    float sinO = sqrt(max(0.0, 1.0 - wo.z*wo.z));  // for LTC elements
-    a = r*pow(sinO, 50.0)*0.5 + 1.0;               // LTC M element a
-    b = r*pow(sinO, 4.0)*sqrt(max(0.0, wo.z));     // LTC M element b
-}
-
-vec3 ltc_space(in vec3 wo, in vec3 w, bool to)
-{
-    // transform w to/from space where wo is in x-z plane
-    float s = to ? -1.0: 1.0;
-    const float eps = 1e-6;
-    float phi = (abs(wo.x) > eps) ? s*atan(wo.y, wo.x) : s*sign(wo.y)*0.5*PI;
-    float C = cos(phi); float S = sin(phi);
-    return vec3(mat2(C, S, -S, C)*w.xy, w.z);
-}
-
-// Inputs:
-//     wo = fixed direction of input ray (i.e. output photon direction)
-//     wi = sampled output ray direction (i.e. input photon direction reversed)
-//      r = roughness
-float pdf_EON(in vec3 wo, in vec3 wi, float r)
-{
-    vec3 wl = ltc_space(wo, wi, true);              // transform wi -> wl
-    float a, b; ltc_coeffs(wo, r, a, b);            // coeffs of LTC M
-    float aI = 1.0/a; float bI = -b*aI;             // coeffs of LTC M^-1
-    vec3 wh = vec3(aI*wl.x+bI*wl.z, aI*wl.y, wl.z); // wh = M^-1 wl
-    float l_MIwl = length(wh);                      // |M^-1 wl|
-    wh /= l_MIwl;                                   // normalize wh
-    float J = aI*aI / (l_MIwl*l_MIwl*l_MIwl);       // |M^-1| / |M^-1 wl|^3
-    float pdf_h = wh.z / PI;                        // wh sample PDF
-    return pdf_h * J;                               // wi sample PDF
-}
-
-vec4 sample_cosine_lobe(inout uint rndSeed)
-{
-    float rh = sqrt(rand(rndSeed));
-    float phi_h = 2.0 * PI * rand(rndSeed);
-    float x = rh * cos(phi_h); float y = rh * sin(phi_h);
-    float z = sqrt(max(0.0, 1.0 - x*x - y*y));
-    return vec4(x, y, z, z/PI);
-}
-
-// wo = fixed direction of input ray (i.e. output photon direction)
-// Returns vec4(wi, pdf_i) where:
-//  - wi is sampled output ray direction (i.e. input photon direction reversed),
-//  - pdf_i is the PDF of the wi sample
-vec4 sample_EON(in vec3 wo, float r, inout uint rndSeed)
-{
-    vec4 whP = sample_cosine_lobe(rndSeed);      // wh sample
-    vec3 wh = whP.xyz; float pdf_h = whP.w;      // wh sample
-    float a, b; ltc_coeffs(wo, r, a, b);         // coeffs of LTC M
-    vec3 wl = vec3(a*wh.x+b*wh.z, a*wh.y, wh.z); // M wh
-    float l_Mwh = length(wl);                    // |M wh| = 1/|M^-1 wl|
-    wl /= l_Mwh;                                 // normalize wl
-    float J = (l_Mwh*l_Mwh*l_Mwh) / (a*a);       // |M^-1| / |M^-1 wl|^3
-    float pdf_i = pdf_h * J;                     // wi sample PDF
-    vec3 wi = ltc_space(wo, wl, false);          // transform wi -> wl
-    return vec4(wi, pdf_i);
-}
-
 // FON directional albedo (analytic)
 float E_FON_analyt(float mu, float sigma)
 {
@@ -108,6 +47,88 @@ vec3 f_EFON(in vec3 rho, float sigma, in vec3 wi, in vec3 wo, bool exact)
     return f_ss + f_ms;
 }
 
+void ltc_terms(float mu, float r,
+               out float a, out float b, out float c, out float d)
+{
+    a = 1.0 + r*(0.303392 + (-0.518982 + 0.111709*mu)*mu + (-0.276266 + 0.335918*mu)*r);
+    b = r*(-1.16407 + 1.15859*mu + (0.150815 - 0.150105*mu)*r)/(mu*mu*mu - 1.43545);
+    c = 1.0 + (0.20013 + (-0.506373 + 0.261777*mu)*mu)*r;
+    d = ((0.540852 + (-1.01625 + 0.475392*mu)*mu)*r)/(-1.0743 + mu*(0.0725628 + mu));
+}
+
+// (NB, uses opposite convention that woutputL is the incident/camera ray direction)
+vec4 cltc_sample(in vec3 woutputL, float r, float u1, float u2)
+{
+    float a, b, c, d; ltc_terms(woutputL.z, r, a, b, c, d);  // coeffs of LTC $M$
+    float R = sqrt(u1); float phi = 2.0 * PI * u2;           // CLTC sampling
+    float x = R * cos(phi); float y = R * sin(phi);          // CLTC sampling
+    float vz = 1.0 / sqrt(d*d + 1.0);                        // CLTC sampling factors
+    float s = 0.5 * (1.0 + vz);                              // CLTC sampling factors
+    x = -mix(sqrt(1.0 - y*y), x, s);                         // CLTC sampling
+    vec3 wh = vec3(x, y, sqrt(max(1.0 - (x*x + y*y), 0.0))); // $w_h$ sample via CLTC
+    float pdf_wh = wh.z / (PI * s);                          // PDF of $w_h$ sample
+    vec3 wi = vec3(a*wh.x + b*wh.z, c*wh.y, d*wh.x + wh.z);  // $M w_h$ (unnormalized)
+    float len = length(wi);                                  // $|M w_h| = 1/|M^{-1} w_h|$
+    float detM = c*(a - b*d);                                // $|M|$
+    float pdf_wi = pdf_wh * len*len*len / detM;              // $w_i$ sample PDF
+    mat3 fromLTC = orthonormal_basis_ltc(woutputL);          // transform $w_i$ to world space
+    wi = normalize(fromLTC * wi);                            // transform $w_i$ to world space
+    return vec4(wi, pdf_wi);
+}
+
+// (NB, uses opposite convention that woutputL is the incident/camera ray direction)
+float cltc_pdf(in vec3 woutputL, in vec3 winputL, float r)
+{
+    mat3 toLTC = transpose(orthonormal_basis_ltc(woutputL));                 // transform $w_i$ to LTC space
+    vec3 wi = toLTC * winputL;                                               // transform $w_i$ to LTC space
+    float a, b, c, d; ltc_terms(woutputL.z, r, a, b, c, d);                  // coeffs of LTC $M$
+    float detM = c*(a - b*d);                                                // $|M|$
+    vec3 wh = vec3(c*(wi.x - b*wi.z), (a - b*d)*wi.y, -c*(d*wi.x - a*wi.z)); // $\mathrm{adj}(M) wi$
+    float lensq = dot(wh, wh);                                               // $|M| |M^{-1} wi|$
+    float vz = 1.0 / sqrt(d*d + 1.0);                                        // CLTC sampling factors
+    float s = 0.5 * (1.0 + vz);                                              // CLTC sampling factors
+    float pdf = sqr(detM / lensq) * max(wh.z, 0.0) / (PI * s);               // $w_i$ sample PDF
+    return pdf;
+}
+
+vec3 uniform_lobe_sample(float u1, float u2)
+{
+    float z = u1;
+    float R = sqrt(1.0 - z*z); float phi = 2.0 * PI * u2;
+    float x = R * cos(phi); float y = R * sin(phi);
+    return vec3(x, y, z);
+}
+
+// (NB, uses opposite convention that woutputL is the incident/camera ray direction)
+vec4 sample_EON(in vec3 woutputL, float r, float u1, float u2)
+{
+    float mu = woutputL.z;
+    float P_u = pow(r, 0.1) * (0.162925 + mu*(-0.372058 + (0.538233 - 0.290822*mu)*mu));
+    float P_c = 1.0 - P_u;
+    vec4 wi; float pdf_C;
+    if (u1 <= P_u) {
+        u1 = u1 / P_u;
+        wi.xyz = uniform_lobe_sample(u1, u2);
+        pdf_C = cltc_pdf(woutputL, wi.xyz, r); }
+    else {
+        u1 = (u1 - P_u) / P_c;
+        wi = cltc_sample(woutputL, r, u1, u2);
+        pdf_C = wi.w; }
+    const float pdf_U = 1.0 / (2.0 * PI);
+    wi.w = P_u*pdf_U + P_c*pdf_C;
+    return wi;
+}
+
+// (NB, uses opposite convention that woutputL is the incident/camera ray direction)
+float pdf_EON(in vec3 woutputL, in vec3 winputL, float r)
+{
+    float mu = woutputL.z;
+    float P_u = pow(r, 0.1) * (0.162925 + mu*(-0.372058 + (0.538233 - 0.290822*mu)*mu));
+    float P_c = 1.0 - P_u;
+    float pdf_cltc = cltc_pdf(woutputL, winputL, r);
+    const float pdf_U = 1.0 / (2.0 * PI);
+    return P_u*pdf_U + P_c*pdf_cltc;
+}
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // diffuse BRDF
@@ -118,17 +139,18 @@ vec3 diffuse_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 
 {
     if (winputL.z < DENOM_TOLERANCE || woutputL.z < DENOM_TOLERANCE) return vec3(0.0);
     pdf_woutputL = pdf_EON(winputL, woutputL, base_roughness);
-    return f_EFON(base_weight * base_color, base_roughness, winputL, woutputL, false);
+    return f_EFON(base_weight * base_color, base_roughness, winputL, woutputL, true);
 }
 
 vec3 diffuse_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
                          out vec3 woutputL, out float pdf_woutputL)
 {
     if (winputL.z < DENOM_TOLERANCE) return vec3(0.0);
-    vec4 woP = sample_EON(winputL, base_roughness, rndSeed);
+    float u1 = rand(rndSeed); float u2 = rand(rndSeed);
+    vec4 woP = sample_EON(winputL, base_roughness, u1, u2);
     woutputL     = woP.xyz;
     pdf_woutputL = woP.w;
-    return f_EFON(base_weight * base_color, base_roughness, winputL, woutputL, false);
+    return f_EFON(base_weight * base_color, base_roughness, winputL, woutputL, true);
 }
 
 vec3 diffuse_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed)
