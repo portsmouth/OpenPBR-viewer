@@ -164,11 +164,10 @@ void main()
         }
         // Sky contribution
         {
-            radiance += diffuse_brdf_albedo(Vlocal) * skyColor * skyPower;
             vec3 Lworld = normalize(-Vworld + 2.0*dot(Nworld, Vworld)*Nworld); // query env map at direction reflect(V, N)
             // diffuse contribution
             {
-                vec4 diff_env = textureLod(envMap, vec3(Lworld.x, Lworld.yz), 20.0);
+                vec4 diff_env = textureLod(envMap, vec3(Lworld.x, Lworld.yz), 100.0);
                 radiance += skyColor * skyPower * diff_env.rgb * diffuse_brdf_albedo(Vlocal);
             }
         }

@@ -105,23 +105,23 @@ var params =
 
     scene_name:                         'standard-shader-ball',
     smooth_normals:                     true,
-    bounces:                            3,
+    bounces:                            2,
     max_samples:                        1024,
     max_volume_steps:                   8,
     wireframe:                          false,
-    neutral_color:                      [0.8, 0.8, 0.8],
+    neutral_color:                      [0.99, 0.99, 0.99],
 
     //////////////////////////////////////////////////////
     // lighting params
     //////////////////////////////////////////////////////
 
-    skyPower:                            0.5,
-    skyColor:                            [0.8, 0.8, 1.0],
-    sunPower:                            0.35,
-    sunAngularSize:                      0.05,
+    skyPower:                            0.6,
+    skyColor:                            [1.0, 1.0, 1.0],
+    sunPower:                            0.25,
+    sunAngularSize:                      5.0,
     sunLatitude:                         40.0,
     sunLongitude:                        315.0,
-    sunColor:                            [1.0, 1.0, 0.8],
+    sunColor:                            [1.0, 1.0, 1.0],
 
     //////////////////////////////////////////////////////
     // OpenPBR surface params
@@ -273,13 +273,6 @@ function transmission_enabled()
     return false;
 }
 
-function dispersion_enabled()
-{
-    if (params.transmission_dispersion_scale > 0.0)
-        return true;
-    return false;
-}
-
 function thin_film_enabled()
 {
     if (params.thin_film_weight > 0.0)
@@ -289,6 +282,8 @@ function thin_film_enabled()
 
 function create_materials()
 {
+    renderer.outputColorSpace = LinearSRGBColorSpace;
+
     if (openpbrMaterial)
         openpbrMaterial.dispose();
 
@@ -302,9 +297,8 @@ function create_materials()
     materialDefines.MAX_VOLUME_STEPS = params.max_volume_steps;
     materialDefines.FUZZ_ENABLED         = fuzz_enabled();
     materialDefines.COAT_ENABLED         = coat_enabled();
-    materialDefines.TRANSMISSION_ENABLED = volume_enabled();
-    materialDefines.VOLUME_ENABLED       = transmission_enabled();
-    materialDefines.DISPERSION_ENABLED   = dispersion_enabled();
+    materialDefines.TRANSMISSION_ENABLED = transmission_enabled();
+    materialDefines.VOLUME_ENABLED       = volume_enabled();
     materialDefines.THIN_FILM_ENABLED    = thin_film_enabled();
 
     if (!PATHTRACING)
@@ -1303,13 +1297,14 @@ function render()
 
             // render to screen
             renderer.setRenderTarget( null );
-            pathtracedFinalQuad.render( renderer ); // TODO: tonemapping!
-
             renderer.autoClear = true;
+            pathtracedFinalQuad.render( renderer );
+
             samples++;
         }
         else
         {
+
             renderer.setRenderTarget( null );
             sync_shader_uniforms(openpbrMaterial.uniforms);
             neutralMaterial.uniforms.neutral_color.value.copy(get_vector3(params.neutral_color));
