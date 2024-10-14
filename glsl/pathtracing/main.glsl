@@ -540,4 +540,4 @@ vec3 xyzToRgb(vec3 XYZ)
 	                  -0.969256 , 1.875991,  0.041556,
 	                   0.055648, -0.204043,  1.057311);
 }
-#ifdef TRANSMISSION_ENABLED
+#endif
