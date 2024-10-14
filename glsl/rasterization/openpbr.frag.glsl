@@ -90,6 +90,7 @@ varying vec3 vSunDir;
 //////////////////////////////////////////////////////
 
 const float PI                    = 3.141592653589793;
+const float RECIPROCAL_PI         = 0.3183098861837907;
 
 // tolerances
 const float DENOM_TOLERANCE       = 1.0e-10;
@@ -260,7 +261,7 @@ float rand(inout uint seed)
 // Microfacet & Fresnel math
 /////////////////////////////////////////////////////////////////////////
 
-vec3 Schlick(vec3 F0, float mu)
+vec3 FresnelSchlick(vec3 F0, float mu)
 {
     return F0 + pow(1.0 - mu, 5.0)*(vec3(1.0) - F0);
 }
@@ -269,8 +270,8 @@ vec3 FresnelConductorF82(float mu, vec3 F0, vec3 F82)
 {
     const float mu_bar = 1.0/7.0;
     const float denom = mu_bar * pow(1.0 - mu_bar, 6.0);
-    vec3 Fschlick_bar = Schlick(F0, mu_bar);
-    vec3 Fschlick     = Schlick(F0, mu);
+    vec3 Fschlick_bar = FresnelSchlick(F0, mu_bar);
+    vec3 Fschlick     = FresnelSchlick(F0, mu);
     return Fschlick - mu * pow(1.0 - mu, 6.0) * (vec3(1.0) - F82) * Fschlick_bar / denom;
 }
 
@@ -330,14 +331,58 @@ float ggx_G2(in vec3 V, in vec3 L, float alpha_x, float alpha_y)
 // Fuzz BRDF
 ///////////////////////////////////////////////////////////////////////
 
+// Gaussian fit to directional albedo table.
+float zeltner_sheen_dir_albedo(float x, float y)
+{
+    float s = y*(0.0206607 + 1.58491*y)/(0.0379424 + y*(1.32227 + y));
+    float m = y*(-0.193854 + y*(-1.14885 + y*(1.7932 - 0.95943*y*y)))/(0.046391 + y);
+    float o = y*(0.000654023 + (-0.0207818 + 0.119681*y)*y)/(1.26264 + y*(-1.92021 + y));
+    return exp(-0.5*sqr((x - m)/s))/(s*sqrt(2.0*PI)) + o;
+}
+
+// Rational fits to LTC matrix coefficients.
+float zeltner_sheen_ltc_aInv(float x, float y)
+{
+    return (2.58126*x + 0.813703*y)*y/(1.0 + 0.310327*x*x + 2.60994*x*y);
+}
+float zeltner_sheen_ltc_bInv(float x, float y)
+{
+    return sqrt(1.0 - x)*(y - 1.0)*y*y*y/(0.0000254053 + 1.71228*x - 1.71506*x*y + 1.34174*y*y);
+}
+
 vec3 fuzz_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 {
-    return vec3(0.0);
+    if (L.z < DENOM_TOLERANCE || V.z < DENOM_TOLERANCE) return vec3(0.0);
+
+    float NdotV = min(V.z, 1.0);
+    float roughness = clamp(pbr.fuzz_roughness, 0.01, 1.0); // Clamp to the range of the original impl.
+    mat3 toLTC = transpose(orthonormal_basis_ltc(V));
+    vec3 w = toLTC * L;
+
+    // Transform w to original configuration (clamped cosine).
+    //                 |aInv    0 bInv|
+    // wo = M^-1 . w = |   0 aInv    0| . w
+    //                 |   0    0    1|
+    float aInv = zeltner_sheen_ltc_aInv(NdotV, roughness);
+    float bInv = zeltner_sheen_ltc_bInv(NdotV, roughness);
+    vec3 wo = vec3(aInv*w.x + bInv*w.z, aInv * w.y, w.z);
+    float lenSqr = dot(wo, wo);
+
+    // D(w) = Do(M^-1.w / ||M^-1.w||) . |M^-1| / ||M^-1.w||^3
+    //      = Do(M^-1.w) . |M^-1| / ||M^-1.w||^4
+    //      = Do(wo) . |M^-1| / dot(wo, wo)^2
+    //      = Do(wo) . aInv^2 / dot(wo, wo)^2
+    //      = Do(wo) . (aInv / dot(wo, wo))^2
+    float jacobian = sqr(aInv / lenSqr);
+    float pdfL = max(wo.z, 0.0) * RECIPROCAL_PI * jacobian;
+    float albedo = zeltner_sheen_dir_albedo(NdotV, roughness);
+    float NdotL = max(abs(L.z), FLT_EPSILON);
+    return pbr.fuzz_color * albedo * pdfL / NdotL;
 }
 
 vec3 fuzz_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 {
-    return vec3(0.0);
+    return vec3(zeltner_sheen_dir_albedo(V.z, pbr.fuzz_roughness));
 }
 
 
@@ -347,6 +392,8 @@ vec3 fuzz_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 
 vec3 coat_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 {
+    if (L.z < DENOM_TOLERANCE || V.z < DENOM_TOLERANCE) return vec3(0.0);
+
     return vec3(0.0);
 }
 
@@ -387,7 +434,6 @@ vec3 metal_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
     vec3 F = FresnelConductorF82(abs(dot(V, H)), F0, F82);
 
     // NDF
-    // Compute the NDF roughnesses in the tangent frame
     float alpha_x, alpha_y;
     specular_ndf_roughnesses(alpha_x, alpha_y, pbr);
     float D = ggx_ndf_eval(H, alpha_x, alpha_y);
@@ -407,7 +453,7 @@ vec3 metal_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
     // Approximate albedo via (deterministic) Monte-Carlo sampling:
     if (V.z <= 0.0) return vec3(0.0);
     uint rndSeed = 0u;
-    const int num_samples = 16;
+    const int num_samples = 4;
     float alpha_x, alpha_y;
     specular_ndf_roughnesses(alpha_x, alpha_y, pbr);
     vec3 albedo = vec3(0.0);
@@ -453,6 +499,21 @@ float FresnelDielectricReflectance(in float mui, in float eta_ti)
     return 0.5*dot(r, r);
 }
 
+float specular_ior_ratio(const in OpenPBRMaterial pbr)
+{
+    // Compute IOR ration at specular boundary, accounting for coat
+    float eta_sc = pbr.specular_ior / pbr.coat_ior;
+    if (eta_sc < 1.0) // (flip spec/coat IOR ratio if needed to keep it > 1, to correct for refraction in coat)
+        eta_sc = 1.0 / eta_sc;
+    const float ambient_ior = 1.0;
+    float eta_s = mix(pbr.specular_ior / ambient_ior, eta_sc, coat_weight);
+    float F_s = sqr((eta_s - 1.0)/(eta_s + 1.0)); // Fresnel at normal incidence
+    float xi_s = clamp(pbr.specular_weight, 0.0, 1.0/max(F_s, DENOM_TOLERANCE)); // clamped specular_weight
+    float tmp = min(1.0, sign(eta_s - 1.0) * sqrt(xi_s * F_s));
+    float eta_s_prime = (1.0 + tmp) / max(1.0 - tmp, DENOM_TOLERANCE); // modulated IOR ratio
+    return eta_s_prime;
+}
+
 vec3 specular_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 {
     if (L.z < DENOM_TOLERANCE || V.z < DENOM_TOLERANCE) return vec3(0.0);
@@ -464,17 +525,16 @@ vec3 specular_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
     if (dot(H, V) < 0.0 || dot(H, L) < 0.0)
         return vec3(0.0);
 
+    // Flip spec/coat IOR ratio if needed to keep it > 1, to correct for lack of refraction in coat
+    float eta_sc = pbr.specular_ior/pbr.coat_ior;
+    if (eta_sc < 1.0)
+        eta_sc = 1.0 / eta_sc;
+
     // Dielectric Fresnel
     // (adjust for adjacent coat, and modulate via specular_weight)
-    const float ambient_ior = 1.0;
-    float eta_s = mix(pbr.specular_ior/ambient_ior, pbr.specular_ior/pbr.coat_ior, pbr.coat_weight);
-    float F_s = sqr((eta_s - 1.0)/(eta_s + 1.0));
-    float xi_s = clamp(pbr.specular_weight, 0.0, 1.0/max(F_s, DENOM_TOLERANCE));
-    float eps = sign(eta_s - 1.0) * sqrt(xi_s * F_s);
-    float eta_ti = (1.0 + eps) / max(1.0 - eps, DENOM_TOLERANCE);
-    float F = FresnelDielectricReflectance(abs(dot(V, H)), eta_ti);
+    float F = FresnelDielectricReflectance(abs(dot(V, H)), specular_ior_ratio(pbr));
 
-    // Compute the NDF roughnesses in the tangent frame
+    // NDF
     float alpha_x, alpha_y;
     specular_ndf_roughnesses(alpha_x, alpha_y, pbr);
     float D = ggx_ndf_eval(H, alpha_x, alpha_y);
@@ -485,8 +545,8 @@ vec3 specular_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
     // Jacobian
     float J = 1.0 / max(4.0 * abs(V.z) * abs(L.z), DENOM_TOLERANCE);
 
-    vec3 f = pbr.specular_color * F * D * G2 * J;
-    return f;
+    float f = F * D * G2 * J;
+    return vec3(f);
 }
 
 vec3 specular_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
@@ -494,24 +554,21 @@ vec3 specular_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
     // Approximate albedo via (deterministic) Monte-Carlo sampling:
     if (V.z <= 0.0) return vec3(0.0);
     uint rndSeed = 0u;
-    const int num_samples = 16;
+    const int num_samples = 4;
     float alpha_x, alpha_y;
     specular_ndf_roughnesses(alpha_x, alpha_y, pbr);
-    vec3 albedo = vec3(0.0);
+    float albedo = 0.0;
     for (int n=0; n<num_samples; ++n)
     {
         vec3 L = ggx_ndf_sample(V, alpha_x, alpha_y, rndSeed);
+        float G2 = ggx_G2(V, L, alpha_x, alpha_y);
+        float G1 = ggx_G1(V, alpha_x, alpha_y);
         vec3 H = normalize(V + L);
-        float D = ggx_ndf_eval(H, alpha_x, alpha_y);
-        float DV = D * ggx_G1(V, alpha_x, alpha_y) * abs(dot(V, H)) / max(DENOM_TOLERANCE, abs(V.z));
-        float dwh_dwo = 1.0 / max(abs(4.0*dot(V, H)), DENOM_TOLERANCE);
-        float pdfL = DV * dwh_dwo;
-        float NdotL = L.z;
-        vec3 f = specular_brdf_evaluate(V, L, pbr);
-        albedo += f * abs(NdotL) / max(pdfL, PDF_EPSILON);
+        float F = FresnelDielectricReflectance(abs(dot(V, H)), specular_ior_ratio(pbr));
+        albedo += F * G2 /  max(G1, DENOM_TOLERANCE);
     }
     albedo /= float(num_samples);
-    return clamp(albedo, vec3(0.0), vec3(1.0));
+    return clamp(vec3(albedo), vec3(0.0), vec3(1.0));
 }
 
 ///////////////////////////////////////////////////////////////////////
@@ -644,7 +701,7 @@ void compute_lobe_weights(in vec3 V, const in OpenPBRMaterial pbr,
     vec3 w_dielectric_base = w_base_substrate * vec3(max(0.0, 1.0 - M));
 
     // Specular BRDF
-    weights.w[ID_SPEC_BRDF] = w_dielectric_base;
+    weights.w[ID_SPEC_BRDF] = pbr.specular_color * w_dielectric_base;
 
     // Specular BTDF
     weights.w[ID_SPEC_BTDF] = w_dielectric_base * T;

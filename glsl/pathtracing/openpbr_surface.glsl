@@ -122,7 +122,7 @@ void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     vec3 w_dielectric_base = w_base_substrate * vec3(max(0.0, 1.0 - M));
 
     // Specular BRDF
-    weights.m[ID_SPEC_BRDF] = w_dielectric_base;
+    weights.m[ID_SPEC_BRDF] = specular_color * w_dielectric_base;
 
     // Specular BTDF
     weights.m[ID_SPEC_BTDF] = w_dielectric_base * T;
