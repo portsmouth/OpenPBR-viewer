@@ -326,7 +326,6 @@ float ggx_G2(in vec3 V, in vec3 L, float alpha_x, float alpha_y)
 }
 
 
-
 ///////////////////////////////////////////////////////////////////////
 // Fuzz BRDF
 ///////////////////////////////////////////////////////////////////////
@@ -420,30 +419,17 @@ void specular_ndf_roughnesses(out float alpha_x, out float alpha_y, const in Ope
 vec3 metal_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 {
     if (L.z < DENOM_TOLERANCE || V.z < DENOM_TOLERANCE) return vec3(0.0);
-
-    // Micronormal
-    vec3 H = normalize(V + L);
-
-    // Discard backfacing microfacets
+    vec3 H = normalize(V + L); // Micronormal
     if (dot(H, V) < 0.0 || dot(H, L) < 0.0)
-        return vec3(0.0);
-
-    // Conductor Fresnel
+        return vec3(0.0); // Discard backfacing microfacets
     vec3 F0  = pbr.base_weight * pbr.base_color;
     vec3 F82 = pbr.specular_color;
-    vec3 F = FresnelConductorF82(abs(dot(V, H)), F0, F82);
-
-    // NDF
+    vec3 F = FresnelConductorF82(abs(dot(V, H)), F0, F82); // Conductor Fresnel
     float alpha_x, alpha_y;
     specular_ndf_roughnesses(alpha_x, alpha_y, pbr);
-    float D = ggx_ndf_eval(H, alpha_x, alpha_y);
-
-    // Shadowing-masking term
-    float G2 = ggx_G2(V, L, alpha_x, alpha_y);
-
-    // Jacobian
-    float J = 1.0 / max(4.0 * abs(V.z) * abs(L.z), DENOM_TOLERANCE);
-
+    float D = ggx_ndf_eval(H, alpha_x, alpha_y); // NDF
+    float G2 = ggx_G2(V, L, alpha_x, alpha_y); // Shadowing-masking term
+    float J = 1.0 / max(4.0 * abs(V.z) * abs(L.z), DENOM_TOLERANCE); // Jacobian
     vec3 f = min(vec3(1.0), pbr.specular_weight*F) * D * G2 * J;
     return f;
 }
@@ -460,14 +446,13 @@ vec3 metal_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
     for (int n=0; n<num_samples; ++n)
     {
         vec3 L = ggx_ndf_sample(V, alpha_x, alpha_y, rndSeed);
+        float G2 = ggx_G2(V, L, alpha_x, alpha_y);
+        float G1 = ggx_G1(V, alpha_x, alpha_y);
         vec3 H = normalize(V + L);
-        float D = ggx_ndf_eval(H, alpha_x, alpha_y);
-        float DV = D * ggx_G1(V, alpha_x, alpha_y) * abs(dot(V, H)) / max(DENOM_TOLERANCE, abs(V.z));
-        float dwh_dwo = 1.0 / max(abs(4.0*dot(V, H)), DENOM_TOLERANCE);
-        float pdfL = DV * dwh_dwo;
-        float NdotL = L.z;
-        vec3 f = metal_brdf_evaluate(V, L, pbr);
-        albedo += f * abs(NdotL) / max(pdfL, PDF_EPSILON);
+        vec3 F0  = pbr.base_weight * pbr.base_color;
+        vec3 F82 = pbr.specular_color;
+        vec3 F = FresnelConductorF82(abs(dot(V, H)), F0, F82);
+        albedo += min(vec3(1.0), pbr.specular_weight*F) * G2 /  max(G1, DENOM_TOLERANCE);
     }
     albedo /= float(num_samples);
     return clamp(albedo, vec3(0.0), vec3(1.0));
@@ -517,34 +502,18 @@ float specular_ior_ratio(const in OpenPBRMaterial pbr)
 vec3 specular_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 {
     if (L.z < DENOM_TOLERANCE || V.z < DENOM_TOLERANCE) return vec3(0.0);
-
-    // Micronormal
-    vec3 H = normalize(V + L);
-
-    // Discard backfacing microfacets
+    vec3 H = normalize(V + L); // Micronormal
     if (dot(H, V) < 0.0 || dot(H, L) < 0.0)
-        return vec3(0.0);
-
-    // Flip spec/coat IOR ratio if needed to keep it > 1, to correct for lack of refraction in coat
+        return vec3(0.0); // Discard backfacing microfacets
     float eta_sc = pbr.specular_ior/pbr.coat_ior;
-    if (eta_sc < 1.0)
+    if (eta_sc < 1.0) // Flip spec/coat IOR ratio if needed to keep it > 1, to correct for lack of refraction in coat
         eta_sc = 1.0 / eta_sc;
-
-    // Dielectric Fresnel
-    // (adjust for adjacent coat, and modulate via specular_weight)
-    float F = FresnelDielectricReflectance(abs(dot(V, H)), specular_ior_ratio(pbr));
-
-    // NDF
+    float F = FresnelDielectricReflectance(abs(dot(V, H)), specular_ior_ratio(pbr)); // Dielectric Fresnel (adjust for adjacent coat, specular_weight)
     float alpha_x, alpha_y;
     specular_ndf_roughnesses(alpha_x, alpha_y, pbr);
-    float D = ggx_ndf_eval(H, alpha_x, alpha_y);
-
-    // Shadowing-masking term
-    float G2 = ggx_G2(V, L, alpha_x, alpha_y);
-
-    // Jacobian
-    float J = 1.0 / max(4.0 * abs(V.z) * abs(L.z), DENOM_TOLERANCE);
-
+    float D = ggx_ndf_eval(H, alpha_x, alpha_y); // NDF
+    float G2 = ggx_G2(V, L, alpha_x, alpha_y); // Shadowing-masking term
+    float J = 1.0 / max(4.0 * abs(V.z) * abs(L.z), DENOM_TOLERANCE); // Jacobian
     float f = F * D * G2 * J;
     return vec3(f);
 }
@@ -669,52 +638,30 @@ void compute_lobe_weights(in vec3 V, const in OpenPBRMaterial pbr,
     float M = pbr.base_metalness;
     float T = pbr.transmission_weight;
     float S = pbr.subsurface_weight;
+    bool has_fuzz              = (F > 0.0);
+    bool has_coat              = (C > 0.0);
+    bool has_dielectric        = (M < 1.0);
+    bool has_dielectric_opaque = has_dielectric && (T < 1.0);
+    bool has_diffuse           = has_dielectric_opaque && (S < 1.0);
 
-    bool fuzzed             = (F > 0.0);
-    bool coated             = (C > 0.0);
-    bool metallic           = (M > 0.0);
-    bool fully_metallic     = (M == 1.0);
-    bool transmissive       = (T > 0.0);
-    bool fully_transmissive = (T == 1.0);
-    bool subsurfaced        = (S > 0.0);
-    bool fully_subsurfaced  = (S == 1.0);
-
-    // Fuzz BRDF
-    weights.w[ID_FUZZ_BRDF] = vec3(F);
-
-    // Coated base //////////////////////
-    vec3 fuzz_albedo = fuzzed  ? fuzz_brdf_albedo(V, pbr) : vec3(0.0);
-    vec3 w_coated_base = mix(vec3(1.0), vec3(1.0) - fuzz_albedo, F);
-
-    // Coat BRDF
-    weights.w[ID_COAT_BRDF] = w_coated_base * C;
-
-    // Base substrate //////////////////////
-    vec3 base_darkening = vec3(1.0); // TODO
-    vec3 coat_albedo = coated ? coat_brdf_albedo(V, pbr) : vec3(0.0);
-    vec3 w_base_substrate = w_coated_base * mix(vec3(1.0), base_darkening * pbr.coat_color * (vec3(1.0) - coat_albedo), C);
-
-    // Metal BRDF
-    weights.w[ID_META_BRDF] = w_base_substrate * M;
-
-    // Dielectric base //////////////////////
-    vec3 w_dielectric_base = w_base_substrate * vec3(max(0.0, 1.0 - M));
-
-    // Specular BRDF
-    weights.w[ID_SPEC_BRDF] = pbr.specular_color * w_dielectric_base;
-
-    // Specular BTDF
-    weights.w[ID_SPEC_BTDF] = w_dielectric_base * T;
-
-    // Opaque dielectric base //////////////////////
+    // slab weights
+    vec3 fuzz_albedo              = has_fuzz    ? fuzz_brdf_albedo(V, pbr) : vec3(0.0);
+    vec3 coat_albedo              = has_coat    ? coat_brdf_albedo(V, pbr) : vec3(0.0);
+    vec3 spec_albedo              = has_diffuse ? specular_brdf_albedo(V, pbr) : vec3(0.0);
+    vec3 base_darkening           = vec3(1.0); // TODO
+    vec3 w_coated_base            = mix(vec3(1.0), vec3(1.0) - fuzz_albedo, F);
+    vec3 w_base_substrate         = w_coated_base * mix(vec3(1.0), base_darkening * pbr.coat_color * (vec3(1.0) - coat_albedo), C);
+    vec3 w_dielectric_base        = w_base_substrate * vec3(max(0.0, 1.0 - M));
     vec3 w_opaque_dielectric_base = w_dielectric_base * (1.0 - T);
 
-    // Subsurface BSSRDF
-    //  - the subsurface lobe is identical to the specular BTDF, apart from the associated internal volumetric medium
+    // resulting BSDF weights
+    weights.w[ID_FUZZ_BRDF] = vec3(F);
+    weights.w[ID_COAT_BRDF] = w_coated_base * C;
+    weights.w[ID_META_BRDF] = w_base_substrate * M;
+    weights.w[ID_SPEC_BRDF] = w_dielectric_base * pbr.specular_color;
+    weights.w[ID_SPEC_BTDF] = w_dielectric_base * T;
     weights.w[ID_SSSC_BTDF] = w_opaque_dielectric_base * S;
-
-    // Diffuse BRDF
-    weights.w[ID_DIFF_BRDF] = w_opaque_dielectric_base * (1.0 - S) * (vec3(1.0) - specular_brdf_albedo(V, pbr));
+    weights.w[ID_DIFF_BRDF] = w_opaque_dielectric_base * (1.0 - S) * (vec3(1.0) - spec_albedo);
 }
 
 vec3 lobe_eval(int lobe_id, in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
@@ -744,41 +691,30 @@ vec3 openpbr_bsdf(const in vec3 V, const in vec3 L,
     return f;
 }
 
-vec3 albedo_eval(int lobe_id, in vec3 V, const in OpenPBRMaterial pbr)
+vec3 albedo_eval(int lobe_id, in vec3 V,
+                 const in LobeWeights weights, const in OpenPBRMaterial pbr)
 {
+    vec3 w = weights.w[lobe_id];
+    if (!any(greaterThan(w, vec3(0.f))))
+        return vec3(0.0);
     switch (lobe_id)
     {
-        case ID_FUZZ_BRDF: return     fuzz_brdf_albedo(V, pbr);
-        case ID_COAT_BRDF: return     coat_brdf_albedo(V, pbr);
-        case ID_META_BRDF: return    metal_brdf_albedo(V, pbr);
-        case ID_SPEC_BRDF: return specular_brdf_albedo(V, pbr);
-        case ID_DIFF_BRDF: return  diffuse_brdf_albedo(V, pbr);
+        case ID_FUZZ_BRDF: return     fuzz_brdf_albedo(V, pbr) * w;
+        case ID_COAT_BRDF: return     coat_brdf_albedo(V, pbr) * w;
+        case ID_META_BRDF: return    metal_brdf_albedo(V, pbr) * w;
+        case ID_SPEC_BRDF: return specular_brdf_albedo(V, pbr) * w;
+        case ID_DIFF_BRDF: return  diffuse_brdf_albedo(V, pbr) * w;
         case ID_SPEC_BTDF:
-        case ID_SSSC_BTDF: return specular_btdf_albedo(V, pbr);
+        case ID_SSSC_BTDF: return specular_btdf_albedo(V, pbr) * w;
     }
-    return vec3(0.0);
-}
-
-vec3 openpbr_bsdf_albedo(const in vec3 V,
-                         const in LobeWeights weights, const in OpenPBRMaterial pbr)
-{
-    // Assume in local space where z is along normal
-    vec3 albedo = vec3(0.0);
-    for (int lobe_id=0; lobe_id<NUM_LOBES; ++lobe_id)
-    {
-        vec3 w = weights.w[lobe_id];
-        if (any(greaterThan(w, vec3(0.f))))
-            albedo += w * albedo_eval(lobe_id, V, pbr);
-    }
-    return albedo;
 }
 
 vec3 diffuse_albedo(const in vec3 V,
                     const in LobeWeights weights, const in OpenPBRMaterial pbr)
 {
     vec3 albedo = vec3(0.0);
-    albedo += weights.w[ID_DIFF_BRDF] * diffuse_brdf_albedo(V, pbr);
-    albedo += weights.w[ID_FUZZ_BRDF] * fuzz_brdf_albedo(V, pbr);
+    albedo += albedo_eval(ID_DIFF_BRDF, V, weights, pbr);
+    albedo += albedo_eval(ID_FUZZ_BRDF, V, weights, pbr);
     return albedo;
 }
 
@@ -786,9 +722,9 @@ vec3 specular_albedo(const in vec3 V,
                      const in LobeWeights weights, const in OpenPBRMaterial pbr)
 {
     vec3 albedo = vec3(0.0);
-    albedo += weights.w[ID_SPEC_BRDF] * specular_brdf_albedo(V, pbr);
-    albedo += weights.w[ID_META_BRDF] * metal_brdf_albedo(V, pbr);
-    albedo += weights.w[ID_COAT_BRDF] * coat_brdf_albedo(V, pbr);
+    albedo += albedo_eval(ID_SPEC_BRDF, V, weights, pbr);
+    albedo += albedo_eval(ID_META_BRDF, V, weights, pbr);
+    albedo += albedo_eval(ID_COAT_BRDF, V, weights, pbr);
     return albedo;
 }
 
