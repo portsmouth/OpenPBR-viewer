@@ -264,6 +264,14 @@ vec3 rotatedToLocal(in vec3 vRotated, in LocalFrameRotation rotation)
     return vec3(xy_local.x, xy_local.y, vRotated.z);
 }
 
+// V is assumed to be in local (+Z) space.
+mat3 orthonormal_basis_ltc(vec3 V)
+{
+    float lenSqr = dot(V.xy, V.xy);
+    vec3 X = lenSqr > 0.0 ? vec3(V.x, V.y, 0.0) * inversesqrt(lenSqr) : vec3(1, 0, 0);
+    vec3 Y = vec3(-X.y, X.x, 0.0); // cross(N, X)
+    return mat3(X, Y, vec3(0, 0, 1));
+}
 
 /////////////////////////////////////////////////////////////////////////
 // Sampling formulae
