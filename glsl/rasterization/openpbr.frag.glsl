@@ -182,6 +182,9 @@ void init_openpbr_material(inout OpenPBRMaterial material)
     material.geometry_thin_walled                = geometry_thin_walled;
 }
 
+/////////////////////////////////////////////////////////////////////////
+// Transforms and math utils
+/////////////////////////////////////////////////////////////////////////
 
 struct Basis
 {
@@ -190,6 +193,8 @@ struct Basis
     vec3 tW; // aligned with the x-axis in local space
     vec3 bW; // aligned with the y-axis in local space
 };
+
+#define sqr(x) ((x)*(x))
 
 vec3 safe_normalize(in vec3 N)
 {
@@ -224,6 +229,18 @@ vec3 worldToLocal(in vec3 vWorld, in Basis basis)
                  dot(vWorld, basis.nW) );
 }
 
+// V is assumed to be in local (+Z) space.
+mat3 orthonormal_basis_ltc(vec3 V)
+{
+    float lenSqr = dot(V.xy, V.xy);
+    vec3 X = lenSqr > 0.0 ? vec3(V.x, V.y, 0.0) * inversesqrt(lenSqr) : vec3(1, 0, 0);
+    vec3 Y = vec3(-X.y, X.x, 0.0); // cross(N, X)
+    return mat3(X, Y, vec3(0, 0, 1));
+}
+
+/////////////////////////////////////////////////////////////////////////
+// Sampling formulae
+/////////////////////////////////////////////////////////////////////////
 
 uint pcg(uint v)
 {
@@ -239,17 +256,9 @@ float rand(inout uint seed)
     return float(seed - 1U) * uint_range;
 }
 
-// Do cosine-weighted sampling of hemisphere
-vec3 sampleHemisphereCosineWeighted(inout uint rndSeed, inout float pdf)
-{
-    float r = sqrt(rand(rndSeed));
-    float theta = 2.0 * PI * rand(rndSeed);
-    float x = r * cos(theta);
-    float y = r * sin(theta);
-    float z = sqrt(max(0.0, 1.0 - x*x - y*y));
-    pdf = max(PDF_EPSILON, abs(z) / PI);
-    return vec3(x, y, z);
-}
+/////////////////////////////////////////////////////////////////////////
+// Microfacet & Fresnel math
+/////////////////////////////////////////////////////////////////////////
 
 vec3 Schlick(vec3 F0, float mu)
 {
@@ -264,8 +273,6 @@ vec3 FresnelConductorF82(float mu, vec3 F0, vec3 F82)
     vec3 Fschlick     = Schlick(F0, mu);
     return Fschlick - mu * pow(1.0 - mu, 6.0) * (vec3(1.0) - F82) * Fschlick_bar / denom;
 }
-
-float sqr(float x)              { return x*x; }
 
 float ggx_ndf_eval(in vec3 m, in float alpha_x, in float alpha_y)
 {
@@ -283,10 +290,8 @@ vec3 ggx_ndf_sample(in vec3 V, float alpha_x, float alpha_y, inout uint rndSeed)
 {
     vec2 Xi = vec2(rand(rndSeed), rand(rndSeed));
     vec2 alpha = vec2(alpha_x, alpha_y);
-
     // Transform the view direction to the hemisphere configuration.
     V = normalize(vec3(V.xy * alpha, V.z));
-
     // Sample a spherical cap in (-V.z, 1].
     float phi = 2.0 * PI * Xi.x;
     float z = (1.0 - Xi.y) * (1.0 + V.z) - V.z;
@@ -294,13 +299,10 @@ vec3 ggx_ndf_sample(in vec3 V, float alpha_x, float alpha_y, inout uint rndSeed)
     float x = sinTheta * cos(phi);
     float y = sinTheta * sin(phi);
     vec3 c = vec3(x, y, z);
-
     // Compute the microfacet normal.
     vec3 H = c + V;
-
     // Transform the microfacet normal back to the ellipsoid configuration.
     H = normalize(vec3(H.xy * alpha, H.z));
-
     return H;
 }
 
@@ -405,7 +407,7 @@ vec3 metal_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
     // Approximate albedo via (deterministic) Monte-Carlo sampling:
     if (V.z <= 0.0) return vec3(0.0);
     uint rndSeed = 0u;
-    const int num_samples = 256;
+    const int num_samples = 16;
     float alpha_x, alpha_y;
     specular_ndf_roughnesses(alpha_x, alpha_y, pbr);
     vec3 albedo = vec3(0.0);
@@ -492,7 +494,7 @@ vec3 specular_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
     // Approximate albedo via (deterministic) Monte-Carlo sampling:
     if (V.z <= 0.0) return vec3(0.0);
     uint rndSeed = 0u;
-    const int num_samples = 256;
+    const int num_samples = 16;
     float alpha_x, alpha_y;
     specular_ndf_roughnesses(alpha_x, alpha_y, pbr);
     vec3 albedo = vec3(0.0);
@@ -527,17 +529,59 @@ vec3 specular_btdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 }
 
 ///////////////////////////////////////////////////////////////////////
-// Diffuse BRDF
+// Diffuse BRDF - EON model
 ///////////////////////////////////////////////////////////////////////
+
+#define constant1_FON (0.5 - 2.0/(3.0*PI))
+#define constant2_FON (2.0/3.0 - 28.0/(15.0*PI))
+
+// FON directional albedo (approx.)
+float E_FON_approx(float mu, float r)
+{
+    #define Gcoeffs_FON mat2(0.287021, -0.17486, -0.306961, 0.193945)
+    #define GoverPI_FON dot((Gcoeffs_FON * vec2(1,mu)) * vec2(1,mu*mu), vec2(1,1))
+    return (1.0 + GoverPI_FON) / (1.0 + constant1_FON*r);
+}
+
+// EON BRDF
+vec3 f_EON(in vec3 rho, float r, in vec3 V, in vec3 L)
+{
+    float muI = V.z;                                 // input angle cos
+    float muO = L.z;                                 // output angle cos
+    float s = dot(V, L) - muI * muO;                 // QON s term
+    float stinv = s > 0.0 ? s / max(muI, muO) : s;   // Fujii model stinv
+    float AF = 1.0 / (1.0 + constant1_FON*r);        // Fujii model A coefficient
+    vec3 f_ss = (rho / PI) * AF * (1.0 + r*stinv);   // single-scatt. BRDF
+    float EFo = E_FON_approx(muO, r);                // EFo at rho=1 (approx)
+    float EFi = E_FON_approx(muI, r);                // EFi at rho=1 (approx)
+    float avgEF = AF * (1.0 + constant2_FON*r);      // avg. albedo
+    vec3 rho_ms = sqr(rho) * avgEF / (vec3(1.0) - rho*max(0.0, 1.0-avgEF));
+    vec3 f_ms = (rho_ms / PI) * max(1e-7, 1.0 - EFo) *   // multi-scatter lobe
+                                max(1e-7, 1.0 - EFi) /
+                                max(1e-7, 1.0 - avgEF);
+    return f_ss + f_ms;
+}
+
+// EON directional albedo (approx)
+vec3 E_EON(in vec3 rho, float r, in vec3 V)
+{
+    float muI = V.z;                                 // input angle cos
+    float AF = 1.0 / (1.0 + constant1_FON*r);        // FON model A coefficient
+    float EF = E_FON_approx(muI, r);                 // EFi at rho=1 (approx)
+    float avgEF = AF * (1.0 + constant2_FON*r);      // average albedo
+    vec3 rho_ms = sqr(rho) * avgEF / (vec3(1.0) - rho*max(0.0, 1.0-avgEF));
+    return rho*EF + rho_ms*(1.0 - EF);
+}
 
 vec3 diffuse_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 {
-    return pbr.base_weight * pbr.base_color / PI;
+    if (V.z < DENOM_TOLERANCE || L.z < DENOM_TOLERANCE) return vec3(0.0);
+    return f_EON(pbr.base_weight * pbr.base_color, pbr.base_roughness, V, L);
 }
 
 vec3 diffuse_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 {
-    return pbr.base_weight * pbr.base_color;
+    return E_EON(pbr.base_weight * pbr.base_color, pbr.base_roughness, V);
 }
 
 
