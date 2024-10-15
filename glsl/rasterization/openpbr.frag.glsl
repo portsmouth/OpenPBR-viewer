@@ -96,6 +96,7 @@ const float RECIPROCAL_PI         = 0.3183098861837907;
 const float DENOM_TOLERANCE       = 1.0e-10;
 const float PDF_EPSILON           = 1.0e-6;
 const float FLT_EPSILON           = 1.1920929e-7;
+const float ALPHA_TOLERANCE       = 1.0e-4;
 
 struct OpenPBRMaterial
 {
@@ -140,47 +141,47 @@ struct OpenPBRMaterial
     bool geometry_thin_walled;
 };
 
-void init_openpbr_material(inout OpenPBRMaterial material)
+void openpbr_init_material(inout OpenPBRMaterial M)
 {
-    material.base_weight                         = base_weight;
-    material.base_color                          = base_color;
-    material.base_roughness                      = base_roughness;
-    material.base_metalness                      = base_metalness;
-    material.specular_weight                     = specular_weight;
-    material.specular_color                      = specular_color;
-    material.specular_roughness                  = specular_roughness;
-    material.specular_anisotropy                 = specular_anisotropy;
-    material.specular_rotation                   = specular_rotation;
-    material.specular_ior                        = specular_ior;
-    material.transmission_weight                 = transmission_weight;
-    material.transmission_color                  = transmission_color;
-    material.transmission_depth                  = transmission_depth;
-    material.transmission_scatter                = transmission_scatter;
-    material.transmission_scatter_anisotropy     = transmission_scatter_anisotropy;
-    material.transmission_dispersion_abbe_number = transmission_dispersion_abbe_number;
-    material.transmission_dispersion_scale       = transmission_dispersion_scale;
-    material.subsurface_weight                   = subsurface_weight;
-    material.subsurface_color                    = subsurface_color;
-    material.subsurface_radius                   = subsurface_radius;
-    material.subsurface_radius_scale             = subsurface_radius_scale;
-    material.subsurface_anisotropy               = subsurface_anisotropy;
-    material.coat_weight                         = coat_weight;
-    material.coat_color                          = coat_color;
-    material.coat_roughness                      = coat_roughness;
-    material.coat_anisotropy                     = coat_anisotropy;
-    material.coat_rotation                       = coat_rotation;
-    material.coat_ior                            = coat_ior;
-    material.coat_darkening                      = coat_darkening;
-    material.fuzz_weight                         = fuzz_weight;
-    material.fuzz_color                          = fuzz_color;
-    material.fuzz_roughness                      = fuzz_roughness;
-    material.thin_film_weight                    = thin_film_weight;
-    material.thin_film_thickness                 = thin_film_thickness;
-    material.thin_film_ior                       = thin_film_ior;
-    material.emission_luminance                  = emission_luminance;
-    material.emission_color                      = emission_color;
-    material.geometry_opacity                    = geometry_opacity;
-    material.geometry_thin_walled                = geometry_thin_walled;
+    M.base_weight                         = base_weight;
+    M.base_color                          = base_color;
+    M.base_roughness                      = base_roughness;
+    M.base_metalness                      = base_metalness;
+    M.specular_weight                     = specular_weight;
+    M.specular_color                      = specular_color;
+    M.specular_roughness                  = specular_roughness;
+    M.specular_anisotropy                 = specular_anisotropy;
+    M.specular_rotation                   = specular_rotation;
+    M.specular_ior                        = specular_ior;
+    M.transmission_weight                 = transmission_weight;
+    M.transmission_color                  = transmission_color;
+    M.transmission_depth                  = transmission_depth;
+    M.transmission_scatter                = transmission_scatter;
+    M.transmission_scatter_anisotropy     = transmission_scatter_anisotropy;
+    M.transmission_dispersion_abbe_number = transmission_dispersion_abbe_number;
+    M.transmission_dispersion_scale       = transmission_dispersion_scale;
+    M.subsurface_weight                   = subsurface_weight;
+    M.subsurface_color                    = subsurface_color;
+    M.subsurface_radius                   = subsurface_radius;
+    M.subsurface_radius_scale             = subsurface_radius_scale;
+    M.subsurface_anisotropy               = subsurface_anisotropy;
+    M.coat_weight                         = coat_weight;
+    M.coat_color                          = coat_color;
+    M.coat_roughness                      = coat_roughness;
+    M.coat_anisotropy                     = coat_anisotropy;
+    M.coat_rotation                       = coat_rotation;
+    M.coat_ior                            = coat_ior;
+    M.coat_darkening                      = coat_darkening;
+    M.fuzz_weight                         = fuzz_weight;
+    M.fuzz_color                          = fuzz_color;
+    M.fuzz_roughness                      = fuzz_roughness;
+    M.thin_film_weight                    = thin_film_weight;
+    M.thin_film_thickness                 = thin_film_thickness;
+    M.thin_film_ior                       = thin_film_ior;
+    M.emission_luminance                  = emission_luminance;
+    M.emission_color                      = emission_color;
+    M.geometry_opacity                    = geometry_opacity;
+    M.geometry_thin_walled                = geometry_thin_walled;
 }
 
 /////////////////////////////////////////////////////////////////////////
@@ -275,22 +276,41 @@ vec3 FresnelConductorF82(float mu, vec3 F0, vec3 F82)
     return Fschlick - mu * pow(1.0 - mu, 6.0) * (vec3(1.0) - F82) * Fschlick_bar / denom;
 }
 
-float ggx_ndf_eval(in vec3 m, in float alpha_x, in float alpha_y)
+// mui     = magnitude of the cosine of the incident ray angle to the micronormal
+// eta_ti  = ratio et/ei of the transmitted IOR (et) and incident IOR (ei)
+// Outputs vec2(rs, rp), the amplitudes of the S, P polarized reflection (where squared amplitudes give reflectance).
+vec2 FresnelDielectricPolarizations(float mui, float eta_ti)
+{
+    float mut2 = sqr(eta_ti) - (1.0 - sqr(mui));
+    if (mut2 <= 0.0) return vec2(1.0, 1.0); // (total internal reflection)
+    float mut = sqrt(mut2) / eta_ti;
+    float rs = (mui - eta_ti*mut) / (mui + eta_ti*mut);
+    float rp = (mut - eta_ti*mui) / (mut + eta_ti*mui);
+    return vec2(rs, rp);
+}
+
+// mui     = magnitude of the cosine of the incident ray angle to the micronormal
+// eta_ti  = ratio et/ei of the transmitted IOR (et) and incident IOR (ei)
+float FresnelDielectricReflectance(in float mui, in float eta_ti)
+{
+    // assuming unpolarized incident light
+    vec2 r = FresnelDielectricPolarizations(mui, eta_ti);
+    return 0.5*dot(r, r);
+}
+
+float ggx_ndf_eval(in vec3 m, in vec2 alpha)
 {
     // Evaluate the anisotropic GGX NDF
-    float ax = max(alpha_x, DENOM_TOLERANCE);
-    float ay = max(alpha_y, DENOM_TOLERANCE);
-    float Ddenom = PI * ax * ay * sqr(sqr(m.x/ax) + sqr(m.y/ay) + sqr(m.z));
+    float Ddenom = PI * alpha.x * alpha.y * sqr(sqr(m.x/alpha.x) + sqr(m.y/alpha.y) + sqr(m.z));
     return 1.0 / max(Ddenom, DENOM_TOLERANCE);
 }
 
 // GGX NDF sampling routine, as described in
 //  "Sampling Visible GGX Normals with Spherical Caps", Dupuy et al., HPG 2023.
 // NB, this assumes V is in the +z hemisphere, and returns a sampled micronormal in that hemisphere.
-vec3 ggx_ndf_sample(in vec3 V, float alpha_x, float alpha_y, inout uint rndSeed)
+vec3 ggx_ndf_sample(in vec3 V, in vec2 alpha, inout uint rndSeed)
 {
     vec2 Xi = vec2(rand(rndSeed), rand(rndSeed));
-    vec2 alpha = vec2(alpha_x, alpha_y);
     // Transform the view direction to the hemisphere configuration.
     V = normalize(vec3(V.xy * alpha, V.z));
     // Sample a spherical cap in (-V.z, 1].
@@ -307,22 +327,22 @@ vec3 ggx_ndf_sample(in vec3 V, float alpha_x, float alpha_y, inout uint rndSeed)
     return H;
 }
 
-float ggx_lambda(in vec3 V, float alpha_x, float alpha_y)
+float ggx_lambda(in vec3 V, in vec2 alpha)
 {
-    return (-1.0 + sqrt(1.0 + (sqr(alpha_x*V.x) + sqr(alpha_y*V.y))/sqr(V.z))) / 2.0;
+    return (-1.0 + sqrt(1.0 + (sqr(alpha.x*V.x) + sqr(alpha.y*V.y))/sqr(V.z))) / 2.0;
 }
 
-float ggx_G1(in vec3 V, float alpha_x, float alpha_y)
+float ggx_G1(in vec3 V, in vec2 alpha)
 {
     if (abs(V.z) < FLT_EPSILON) return 0.0;
-    return 1.0 / (1.0 + ggx_lambda(V, alpha_x, alpha_y));
+    return 1.0 / (1.0 + ggx_lambda(V, alpha));
 }
 
 // Height-correlated form of GGX shadowing-masking function
-float ggx_G2(in vec3 V, in vec3 L, float alpha_x, float alpha_y)
+float ggx_G2(in vec3 V, in vec3 L, in vec2 alpha)
 {
     if (abs(V.z) < FLT_EPSILON || abs(L.z) < FLT_EPSILON) return 0.0;
-    return 1.0 / (1.0 + ggx_lambda(V, alpha_x, alpha_y) + ggx_lambda(L,  alpha_x, alpha_y));
+    return 1.0 / (1.0 + ggx_lambda(V, alpha) + ggx_lambda(L, alpha));
 }
 
 
@@ -351,10 +371,8 @@ float zeltner_sheen_ltc_bInv(float x, float y)
 
 vec3 fuzz_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 {
-    if (L.z < DENOM_TOLERANCE || V.z < DENOM_TOLERANCE) return vec3(0.0);
-
     float NdotV = min(V.z, 1.0);
-    float roughness = clamp(pbr.fuzz_roughness, 0.01, 1.0); // Clamp to the range of the original impl.
+    float r = clamp(pbr.fuzz_roughness, 0.01, 1.0); // Clamp to the range of the original impl.
     mat3 toLTC = transpose(orthonormal_basis_ltc(V));
     vec3 w = toLTC * L;
 
@@ -362,8 +380,8 @@ vec3 fuzz_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
     //                 |aInv    0 bInv|
     // wo = M^-1 . w = |   0 aInv    0| . w
     //                 |   0    0    1|
-    float aInv = zeltner_sheen_ltc_aInv(NdotV, roughness);
-    float bInv = zeltner_sheen_ltc_bInv(NdotV, roughness);
+    float aInv = zeltner_sheen_ltc_aInv(NdotV, r);
+    float bInv = zeltner_sheen_ltc_bInv(NdotV, r);
     vec3 wo = vec3(aInv*w.x + bInv*w.z, aInv * w.y, w.z);
     float lenSqr = dot(wo, wo);
 
@@ -374,7 +392,7 @@ vec3 fuzz_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
     //      = Do(wo) . (aInv / dot(wo, wo))^2
     float jacobian = sqr(aInv / lenSqr);
     float pdfL = max(wo.z, 0.0) * RECIPROCAL_PI * jacobian;
-    float albedo = zeltner_sheen_dir_albedo(NdotV, roughness);
+    float albedo = zeltner_sheen_dir_albedo(NdotV, r);
     float NdotL = max(abs(L.z), FLT_EPSILON);
     return pbr.fuzz_color * albedo * pdfL / NdotL;
 }
@@ -386,49 +404,118 @@ vec3 fuzz_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 
 
 ///////////////////////////////////////////////////////////////////////
-// Coat BRDF
+// coat/specular dielectric BRDFs
 ///////////////////////////////////////////////////////////////////////
+
+struct DielectricBRDFParams
+{
+    float eta_ie; // internal/external IOR ratio
+    vec2 alpha;   // alpha roughnesses
+};
+
+vec3 dielectric_brdf_evaluate(in vec3 V, in vec3 L, const in DielectricBRDFParams P)
+{
+    vec3 H = normalize(V + L); // Micronormal
+    if (dot(H, V) < 0.0 || dot(H, L) < 0.0)
+        return vec3(0.0); // Discard backfacing microfacets
+    float F = FresnelDielectricReflectance(abs(dot(V, H)), P.eta_ie); // Dielectric Fresnel
+    float D = ggx_ndf_eval(H, P.alpha); // NDF
+    float G2 = ggx_G2(V, L, P.alpha); // Shadowing-masking term
+    float J = 1.0 / max(4.0 * abs(V.z) * abs(L.z), DENOM_TOLERANCE); // Jacobian
+    float f = F * D * G2 * J;
+    return vec3(f);
+}
+
+vec3 dielectric_brdf_albedo(in vec3 V, const in DielectricBRDFParams P)
+{
+    // Approximate albedo via (deterministic) Monte-Carlo sampling:
+    uint rndSeed = 0u;
+    const int num_samples = 4;
+    float albedo = 0.0;
+    for (int n=0; n<num_samples; ++n)
+    {
+        vec3 L = ggx_ndf_sample(V, P.alpha, rndSeed);
+        float G2 = ggx_G2(V, L, P.alpha);
+        float G1 = ggx_G1(V, P.alpha);
+        vec3 H = normalize(V + L);
+        float F = FresnelDielectricReflectance(abs(dot(V, H)), P.eta_ie);
+        albedo += F * G2 /  max(G1, DENOM_TOLERANCE);
+    }
+    albedo /= float(num_samples);
+    return clamp(vec3(albedo), vec3(0.0), vec3(1.0));
+}
+
+vec2 coat_ndf_roughnesses(const in OpenPBRMaterial pbr)
+{
+    float alpha_x = max(ALPHA_TOLERANCE, sqr(pbr.coat_roughness) * sqrt(2.0/(1.0 + sqr(1.0 - pbr.coat_anisotropy))));
+    float alpha_y = max(ALPHA_TOLERANCE, (1.0 - pbr.coat_anisotropy) * alpha_x);
+    return vec2(alpha_x, alpha_y);
+}
 
 vec3 coat_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 {
-    if (L.z < DENOM_TOLERANCE || V.z < DENOM_TOLERANCE) return vec3(0.0);
-
-    return vec3(0.0);
+    DielectricBRDFParams P;
+    P.eta_ie = pbr.coat_ior; // (assuming here that ambient IOR is 1)
+    P.alpha  = coat_ndf_roughnesses(pbr);
+    return dielectric_brdf_evaluate(V, L, P);
 }
 
 vec3 coat_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 {
-    return vec3(0.0);
+    DielectricBRDFParams P;
+    P.eta_ie = pbr.coat_ior; // (assume ambient IOR is 1)
+    P.alpha  = coat_ndf_roughnesses(pbr);
+    return dielectric_brdf_albedo(V, P);
 }
+
+float specular_ior_ratio(const in OpenPBRMaterial pbr)
+{
+    // Compute IOR ration at specular boundary, accounting for coat
+    float eta_sc = pbr.specular_ior / pbr.coat_ior;
+    if (eta_sc < 1.0) eta_sc = 1.0/eta_sc; // (flip spec/coat IOR ratio if needed to keep it > 1, to correct for refraction in coat)
+    float eta_s = mix(pbr.specular_ior, eta_sc, coat_weight); // (assuming here that ambient IOR is 1)
+    float F_s = sqr((eta_s - 1.0)/(eta_s + 1.0)); // Fresnel at normal incidence
+    float tmp = min(1.0, sign(eta_s - 1.0) * sqrt(clamp(pbr.specular_weight * F_s, 0.0, 1.0)));
+    return (1.0 + tmp) / max(1.0 - tmp, DENOM_TOLERANCE); // modulated IOR ratio
+}
+
+vec2 specular_ndf_roughnesses(const in OpenPBRMaterial pbr)
+{
+    float alpha_x = max(ALPHA_TOLERANCE, sqr(pbr.specular_roughness) * sqrt(2.0/(1.0 + sqr(1.0 - pbr.specular_anisotropy))));
+    float alpha_y = max(ALPHA_TOLERANCE, (1.0 - pbr.specular_anisotropy) * alpha_x);
+    return vec2(alpha_x, alpha_y);
+}
+
+vec3 specular_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
+{
+    DielectricBRDFParams P;
+    P.eta_ie = specular_ior_ratio(pbr);
+    P.alpha  = specular_ndf_roughnesses(pbr);
+    return dielectric_brdf_evaluate(V, L, P);
+}
+
+vec3 specular_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
+{
+    DielectricBRDFParams P;
+    P.eta_ie = specular_ior_ratio(pbr);
+    P.alpha  = specular_ndf_roughnesses(pbr);
+    return dielectric_brdf_albedo(V, P);
+}
+
 
 ///////////////////////////////////////////////////////////////////////
 // Metal BRDF
 ///////////////////////////////////////////////////////////////////////
 
-void specular_ndf_roughnesses(out float alpha_x, out float alpha_y, const in OpenPBRMaterial pbr)
-{
-    float rsqr = sqr(pbr.specular_roughness);
-    alpha_x = rsqr * sqrt(2.0/(1.0 + sqr(1.0 - pbr.specular_anisotropy)));
-    alpha_y = (1.0 - pbr.specular_anisotropy) * alpha_x;
-    // (Here opt to clamp to a mininum roughness, rather than deal with a special degenerate case for zero roughness)
-    const float min_alpha = 1.0e-4;
-    alpha_x = max(min_alpha, alpha_x);
-    alpha_y = max(min_alpha, alpha_y);
-}
-
 vec3 metal_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 {
-    if (L.z < DENOM_TOLERANCE || V.z < DENOM_TOLERANCE) return vec3(0.0);
     vec3 H = normalize(V + L); // Micronormal
-    if (dot(H, V) < 0.0 || dot(H, L) < 0.0)
-        return vec3(0.0); // Discard backfacing microfacets
     vec3 F0  = pbr.base_weight * pbr.base_color;
     vec3 F82 = pbr.specular_color;
     vec3 F = FresnelConductorF82(abs(dot(V, H)), F0, F82); // Conductor Fresnel
-    float alpha_x, alpha_y;
-    specular_ndf_roughnesses(alpha_x, alpha_y, pbr);
-    float D = ggx_ndf_eval(H, alpha_x, alpha_y); // NDF
-    float G2 = ggx_G2(V, L, alpha_x, alpha_y); // Shadowing-masking term
+    vec2 alpha = specular_ndf_roughnesses(pbr);
+    float D = ggx_ndf_eval(H, alpha); // NDF
+    float G2 = ggx_G2(V, L, alpha); // Shadowing-masking term
     float J = 1.0 / max(4.0 * abs(V.z) * abs(L.z), DENOM_TOLERANCE); // Jacobian
     vec3 f = min(vec3(1.0), pbr.specular_weight*F) * D * G2 * J;
     return f;
@@ -437,17 +524,15 @@ vec3 metal_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 vec3 metal_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 {
     // Approximate albedo via (deterministic) Monte-Carlo sampling:
-    if (V.z <= 0.0) return vec3(0.0);
     uint rndSeed = 0u;
     const int num_samples = 4;
-    float alpha_x, alpha_y;
-    specular_ndf_roughnesses(alpha_x, alpha_y, pbr);
+    vec2 alpha = specular_ndf_roughnesses(pbr);
     vec3 albedo = vec3(0.0);
     for (int n=0; n<num_samples; ++n)
     {
-        vec3 L = ggx_ndf_sample(V, alpha_x, alpha_y, rndSeed);
-        float G2 = ggx_G2(V, L, alpha_x, alpha_y);
-        float G1 = ggx_G1(V, alpha_x, alpha_y);
+        vec3 L = ggx_ndf_sample(V, alpha, rndSeed);
+        float G2 = ggx_G2(V, L, alpha);
+        float G1 = ggx_G1(V, alpha);
         vec3 H = normalize(V + L);
         vec3 F0  = pbr.base_weight * pbr.base_color;
         vec3 F82 = pbr.specular_color;
@@ -458,87 +543,6 @@ vec3 metal_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
     return clamp(albedo, vec3(0.0), vec3(1.0));
 }
 
-///////////////////////////////////////////////////////////////////////
-// Specular BRDF
-///////////////////////////////////////////////////////////////////////
-
-// mui     = magnitude of the cosine of the incident ray angle to the micronormal
-// eta_ti  = ratio et/ei of the transmitted IOR (et) and incident IOR (ei)
-// Outputs vec2(rs, rp), the amplitudes of the S, P polarized reflection (where squared amplitudes give reflectance).
-vec2 FresnelDielectricPolarizations(float mui, float eta_ti)
-{
-    float mut2 = sqr(eta_ti) - (1.0 - sqr(mui));
-    if (mut2 <= 0.0) return vec2(1.0, 1.0); // (total internal reflection)
-    float mut = sqrt(mut2) / eta_ti;
-    float rs = (mui - eta_ti*mut) / (mui + eta_ti*mut);
-    float rp = (mut - eta_ti*mui) / (mut + eta_ti*mui);
-    return vec2(rs, rp);
-}
-
-// mui     = magnitude of the cosine of the incident ray angle to the micronormal
-// eta_ti  = ratio et/ei of the transmitted IOR (et) and incident IOR (ei)
-float FresnelDielectricReflectance(in float mui, in float eta_ti)
-{
-    // assuming unpolarized incident light
-    vec2 r = FresnelDielectricPolarizations(mui, eta_ti);
-    return 0.5*dot(r, r);
-}
-
-float specular_ior_ratio(const in OpenPBRMaterial pbr)
-{
-    // Compute IOR ration at specular boundary, accounting for coat
-    float eta_sc = pbr.specular_ior / pbr.coat_ior;
-    if (eta_sc < 1.0) // (flip spec/coat IOR ratio if needed to keep it > 1, to correct for refraction in coat)
-        eta_sc = 1.0 / eta_sc;
-    const float ambient_ior = 1.0;
-    float eta_s = mix(pbr.specular_ior / ambient_ior, eta_sc, coat_weight);
-    float F_s = sqr((eta_s - 1.0)/(eta_s + 1.0)); // Fresnel at normal incidence
-    float xi_s = clamp(pbr.specular_weight, 0.0, 1.0/max(F_s, DENOM_TOLERANCE)); // clamped specular_weight
-    float tmp = min(1.0, sign(eta_s - 1.0) * sqrt(xi_s * F_s));
-    float eta_s_prime = (1.0 + tmp) / max(1.0 - tmp, DENOM_TOLERANCE); // modulated IOR ratio
-    return eta_s_prime;
-}
-
-vec3 specular_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
-{
-    if (L.z < DENOM_TOLERANCE || V.z < DENOM_TOLERANCE) return vec3(0.0);
-    vec3 H = normalize(V + L); // Micronormal
-    if (dot(H, V) < 0.0 || dot(H, L) < 0.0)
-        return vec3(0.0); // Discard backfacing microfacets
-    float eta_sc = pbr.specular_ior/pbr.coat_ior;
-    if (eta_sc < 1.0) // Flip spec/coat IOR ratio if needed to keep it > 1, to correct for lack of refraction in coat
-        eta_sc = 1.0 / eta_sc;
-    float F = FresnelDielectricReflectance(abs(dot(V, H)), specular_ior_ratio(pbr)); // Dielectric Fresnel (adjust for adjacent coat, specular_weight)
-    float alpha_x, alpha_y;
-    specular_ndf_roughnesses(alpha_x, alpha_y, pbr);
-    float D = ggx_ndf_eval(H, alpha_x, alpha_y); // NDF
-    float G2 = ggx_G2(V, L, alpha_x, alpha_y); // Shadowing-masking term
-    float J = 1.0 / max(4.0 * abs(V.z) * abs(L.z), DENOM_TOLERANCE); // Jacobian
-    float f = F * D * G2 * J;
-    return vec3(f);
-}
-
-vec3 specular_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
-{
-    // Approximate albedo via (deterministic) Monte-Carlo sampling:
-    if (V.z <= 0.0) return vec3(0.0);
-    uint rndSeed = 0u;
-    const int num_samples = 4;
-    float alpha_x, alpha_y;
-    specular_ndf_roughnesses(alpha_x, alpha_y, pbr);
-    float albedo = 0.0;
-    for (int n=0; n<num_samples; ++n)
-    {
-        vec3 L = ggx_ndf_sample(V, alpha_x, alpha_y, rndSeed);
-        float G2 = ggx_G2(V, L, alpha_x, alpha_y);
-        float G1 = ggx_G1(V, alpha_x, alpha_y);
-        vec3 H = normalize(V + L);
-        float F = FresnelDielectricReflectance(abs(dot(V, H)), specular_ior_ratio(pbr));
-        albedo += F * G2 /  max(G1, DENOM_TOLERANCE);
-    }
-    albedo /= float(num_samples);
-    return clamp(vec3(albedo), vec3(0.0), vec3(1.0));
-}
 
 ///////////////////////////////////////////////////////////////////////
 // Specular BTDF
@@ -553,6 +557,7 @@ vec3 specular_btdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 {
     return vec3(0.0);
 }
+
 
 ///////////////////////////////////////////////////////////////////////
 // Diffuse BRDF - EON model
@@ -569,45 +574,34 @@ float E_FON_approx(float mu, float r)
     return (1.0 + GoverPI_FON) / (1.0 + constant1_FON*r);
 }
 
-// EON BRDF
-vec3 f_EON(in vec3 rho, float r, in vec3 V, in vec3 L)
+vec3 diffuse_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 {
-    float muI = V.z;                                 // input angle cos
-    float muO = L.z;                                 // output angle cos
-    float s = dot(V, L) - muI * muO;                 // QON s term
-    float stinv = s > 0.0 ? s / max(muI, muO) : s;   // Fujii model stinv
+    vec3 rho = pbr.base_weight * pbr.base_color;
+    float r = pbr.base_roughness;
+    float s = dot(V, L) - V.z * L.z;                 // QON s term
+    float stinv = s > 0.0 ? s / max(V.z, L.z) : s;   // Fujii model stinv
     float AF = 1.0 / (1.0 + constant1_FON*r);        // Fujii model A coefficient
     vec3 f_ss = (rho / PI) * AF * (1.0 + r*stinv);   // single-scatt. BRDF
-    float EFo = E_FON_approx(muO, r);                // EFo at rho=1 (approx)
-    float EFi = E_FON_approx(muI, r);                // EFi at rho=1 (approx)
+    float EFo = E_FON_approx(L.z, r);                // EFo at rho=1 (approx)
+    float EFi = E_FON_approx(V.z, r);                // EFi at rho=1 (approx)
     float avgEF = AF * (1.0 + constant2_FON*r);      // avg. albedo
     vec3 rho_ms = sqr(rho) * avgEF / (vec3(1.0) - rho*max(0.0, 1.0-avgEF));
-    vec3 f_ms = (rho_ms / PI) * max(1e-7, 1.0 - EFo) *   // multi-scatter lobe
-                                max(1e-7, 1.0 - EFi) /
-                                max(1e-7, 1.0 - avgEF);
+    vec3 f_ms = (rho_ms / PI) * max(FLT_EPSILON, 1.0 - EFo) *   // multi-scatter lobe
+                                max(FLT_EPSILON, 1.0 - EFi) /
+                                max(FLT_EPSILON, 1.0 - avgEF);
     return f_ss + f_ms;
 }
 
-// EON directional albedo (approx)
-vec3 E_EON(in vec3 rho, float r, in vec3 V)
+vec3 diffuse_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 {
+    vec3 rho = pbr.base_weight * pbr.base_color;
+    float r = pbr.base_roughness;
     float muI = V.z;                                 // input angle cos
     float AF = 1.0 / (1.0 + constant1_FON*r);        // FON model A coefficient
     float EF = E_FON_approx(muI, r);                 // EFi at rho=1 (approx)
     float avgEF = AF * (1.0 + constant2_FON*r);      // average albedo
     vec3 rho_ms = sqr(rho) * avgEF / (vec3(1.0) - rho*max(0.0, 1.0-avgEF));
     return rho*EF + rho_ms*(1.0 - EF);
-}
-
-vec3 diffuse_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
-{
-    if (V.z < DENOM_TOLERANCE || L.z < DENOM_TOLERANCE) return vec3(0.0);
-    return f_EON(pbr.base_weight * pbr.base_color, pbr.base_roughness, V, L);
-}
-
-vec3 diffuse_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
-{
-    return E_EON(pbr.base_weight * pbr.base_color, pbr.base_roughness, V);
 }
 
 
@@ -624,14 +618,14 @@ const int ID_DIFF_BRDF = 5;
 const int ID_SSSC_BTDF = 6;
 const int NUM_LOBES    = 7;
 
-struct LobeWeights
+struct OpenPBRLobeWeights
 {
     // Weight multipliers of individual BSDF lobes
     vec3 w[7];
 };
 
-void compute_lobe_weights(in vec3 V, const in OpenPBRMaterial pbr,
-                          inout LobeWeights weights)
+void openpbr_lobe_weights(in vec3 V, const in OpenPBRMaterial pbr,
+                          inout OpenPBRLobeWeights W)
 {
     float F = pbr.fuzz_weight;
     float C = pbr.coat_weight;
@@ -644,27 +638,28 @@ void compute_lobe_weights(in vec3 V, const in OpenPBRMaterial pbr,
     bool has_dielectric_opaque = has_dielectric && (T < 1.0);
     bool has_diffuse           = has_dielectric_opaque && (S < 1.0);
 
-    // slab weights
-    vec3 fuzz_albedo              = has_fuzz    ? fuzz_brdf_albedo(V, pbr) : vec3(0.0);
-    vec3 coat_albedo              = has_coat    ? coat_brdf_albedo(V, pbr) : vec3(0.0);
+    // calculate slab weights according to layer structure
+    vec3 fuzz_albedo              = has_fuzz    ? fuzz_brdf_albedo(V, pbr)     : vec3(0.0);
+    vec3 coat_albedo              = has_coat    ? coat_brdf_albedo(V, pbr)     : vec3(0.0);
     vec3 spec_albedo              = has_diffuse ? specular_brdf_albedo(V, pbr) : vec3(0.0);
     vec3 base_darkening           = vec3(1.0); // TODO
     vec3 w_coated_base            = mix(vec3(1.0), vec3(1.0) - fuzz_albedo, F);
     vec3 w_base_substrate         = w_coated_base * mix(vec3(1.0), base_darkening * pbr.coat_color * (vec3(1.0) - coat_albedo), C);
     vec3 w_dielectric_base        = w_base_substrate * vec3(max(0.0, 1.0 - M));
     vec3 w_opaque_dielectric_base = w_dielectric_base * (1.0 - T);
+    vec3 w_glossy_diffuse_base    = w_opaque_dielectric_base * (vec3(1.0) - spec_albedo);
 
-    // resulting BSDF weights
-    weights.w[ID_FUZZ_BRDF] = vec3(F);
-    weights.w[ID_COAT_BRDF] = w_coated_base * C;
-    weights.w[ID_META_BRDF] = w_base_substrate * M;
-    weights.w[ID_SPEC_BRDF] = w_dielectric_base * pbr.specular_color;
-    weights.w[ID_SPEC_BTDF] = w_dielectric_base * T;
-    weights.w[ID_SSSC_BTDF] = w_opaque_dielectric_base * S;
-    weights.w[ID_DIFF_BRDF] = w_opaque_dielectric_base * (1.0 - S) * (vec3(1.0) - spec_albedo);
+    // resulting lobe weights
+    W.w[ID_FUZZ_BRDF] = vec3(F);
+    W.w[ID_COAT_BRDF] = w_coated_base * C;
+    W.w[ID_META_BRDF] = w_base_substrate * M;
+    W.w[ID_SPEC_BRDF] = w_dielectric_base * pbr.specular_color;
+    W.w[ID_SPEC_BTDF] = w_dielectric_base * T;
+    W.w[ID_SSSC_BTDF] = w_opaque_dielectric_base * S;
+    W.w[ID_DIFF_BRDF] = w_glossy_diffuse_base * (1.0 - S);
 }
 
-vec3 lobe_eval(int lobe_id, in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
+vec3 openpbr_lobe_eval(int lobe_id, in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 {
     switch (lobe_id)
     {
@@ -679,22 +674,24 @@ vec3 lobe_eval(int lobe_id, in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 }
 
 vec3 openpbr_bsdf(const in vec3 V, const in vec3 L,
-                  const in LobeWeights weights, const in OpenPBRMaterial pbr)
+                  const in OpenPBRLobeWeights W, const in OpenPBRMaterial pbr)
 {
+    if (L.z < DENOM_TOLERANCE || V.z < DENOM_TOLERANCE) return vec3(0.0);
     vec3 f = vec3(0.0);
     for (int lobe_id=0; lobe_id<NUM_LOBES; ++lobe_id)
     {
-        vec3 w = weights.w[lobe_id];
+        vec3 w = W.w[lobe_id];
         if (any(greaterThan(w, vec3(0.f))))
-            f += w * lobe_eval(lobe_id, V, L, pbr);
+            f += w * openpbr_lobe_eval(lobe_id, V, L, pbr);
     }
     return f;
 }
 
-vec3 albedo_eval(int lobe_id, in vec3 V,
-                 const in LobeWeights weights, const in OpenPBRMaterial pbr)
+vec3 openpbr_lobe_albedo(int lobe_id, in vec3 V,
+                         const in OpenPBRLobeWeights W, const in OpenPBRMaterial pbr)
 {
-    vec3 w = weights.w[lobe_id];
+    if (V.z < DENOM_TOLERANCE) return vec3(0.0);
+    vec3 w = W.w[lobe_id];
     if (!any(greaterThan(w, vec3(0.f))))
         return vec3(0.0);
     switch (lobe_id)
@@ -708,26 +705,6 @@ vec3 albedo_eval(int lobe_id, in vec3 V,
         case ID_SSSC_BTDF: return specular_btdf_albedo(V, pbr) * w;
     }
 }
-
-vec3 diffuse_albedo(const in vec3 V,
-                    const in LobeWeights weights, const in OpenPBRMaterial pbr)
-{
-    vec3 albedo = vec3(0.0);
-    albedo += albedo_eval(ID_DIFF_BRDF, V, weights, pbr);
-    albedo += albedo_eval(ID_FUZZ_BRDF, V, weights, pbr);
-    return albedo;
-}
-
-vec3 specular_albedo(const in vec3 V,
-                     const in LobeWeights weights, const in OpenPBRMaterial pbr)
-{
-    vec3 albedo = vec3(0.0);
-    albedo += albedo_eval(ID_SPEC_BRDF, V, weights, pbr);
-    albedo += albedo_eval(ID_META_BRDF, V, weights, pbr);
-    albedo += albedo_eval(ID_COAT_BRDF, V, weights, pbr);
-    return albedo;
-}
-
 
 
 ///////////////////////////////////////////////////////////////////////
@@ -755,15 +732,15 @@ void main()
     Basis basis = makeBasis(Nworld);
 
     vec3 Vworld = normalize(cameraPosition - vWorldPosition);
-    vec3 Vlocal = worldToLocal(Vworld, basis);
+    vec3 Vlocal = worldToLocal(Vworld, basis); // (BRDF evaluation happens in the local space of the vertex frame)
 
     // Initialize material
     OpenPBRMaterial pbr;
-    init_openpbr_material(pbr);
+    openpbr_init_material(pbr);
     pbr.specular_roughness = max(0.05, pbr.specular_roughness);
 
-    LobeWeights lobe_weights;
-    compute_lobe_weights(Vlocal, pbr, lobe_weights);
+    OpenPBRLobeWeights W;
+    openpbr_lobe_weights(Vlocal, pbr, W);
 
     // Compute direct lighting
     vec3 radiance = vec3(0.0);
@@ -797,7 +774,7 @@ void main()
             if (length(sun_visibility) > 0.0)
             {
                 vec3 Llocal = worldToLocal(Lworld, basis);
-                vec3 f = openpbr_bsdf(Vlocal, Llocal, lobe_weights, pbr);
+                vec3 f = openpbr_bsdf(Vlocal, Llocal, W, pbr);
                 radiance += sun_visibility * f * NdotL * sunColor * sunPower;
             }
         }
@@ -809,16 +786,31 @@ void main()
             // diffuse contribution
             {
                 vec4 diff_env = textureLod(envMap, vec3(Lworld.x, Lworld.yz), 100.0);
-                radiance += skyColor * skyPower * diff_env.rgb * diffuse_albedo(Vlocal, lobe_weights, pbr);
+                vec3 diffuse_albedo = vec3(0.0);
+                diffuse_albedo += openpbr_lobe_albedo(ID_DIFF_BRDF, Vlocal, W, pbr);
+                diffuse_albedo += openpbr_lobe_albedo(ID_FUZZ_BRDF, Vlocal, W, pbr);
+                radiance += skyColor * skyPower * diff_env.rgb * diffuse_albedo;
             }
+
+            ivec2 env_res = textureSize(envMap, 0);
+            int env_max_res = max(env_res.x, env_res.y);
 
             // specular contribution
             {
-                ivec2 res = textureSize(envMap, 0);
-                int Ntex = max(res.x, res.y);
-                float lod = specular_roughness > 0.0 ? max(0.0, 1.0 + log2(float(Ntex)*sqr(specular_roughness))) : 0.0;
+                float lod = specular_roughness > 0.0 ? max(0.0, 1.0 + log2(float(env_max_res)*sqr(specular_roughness))) : 0.0;
                 vec4 spec_env = textureLod(envMap, vec3(Lworld.x, Lworld.yz), lod);
-                radiance += skyColor * skyPower * spec_env.rgb * specular_albedo(Vlocal, lobe_weights, pbr);
+                vec3 specular_albedo = vec3(0.0);
+                specular_albedo += openpbr_lobe_albedo(ID_SPEC_BRDF, Vlocal, W, pbr);
+                specular_albedo += openpbr_lobe_albedo(ID_META_BRDF, Vlocal, W, pbr);
+                radiance += skyColor * skyPower * spec_env.rgb * specular_albedo;
+            }
+
+            // coat contribution
+            {
+                float lod = coat_roughness > 0.0 ? max(0.0, 1.0 + log2(float(env_max_res)*sqr(coat_roughness))) : 0.0;
+                vec4 spec_env = textureLod(envMap, vec3(Lworld.x, Lworld.yz), lod);
+                vec3 coat_albedo = openpbr_lobe_albedo(ID_COAT_BRDF, Vlocal, W, pbr);
+                radiance += skyColor * skyPower * spec_env.rgb * coat_albedo;
             }
         }
     }

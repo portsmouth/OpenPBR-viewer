@@ -137,7 +137,7 @@ var params =
     specular_roughness:                  0.1,
     specular_anisotropy:                 0.0,
     specular_rotation:                   0.0,
-    specular_ior:                        1.6,
+    specular_ior:                        1.5,
 
     transmission_weight:                 0.0,
     transmission_color:                  [1.0, 1.0, 1.0],
@@ -158,7 +158,7 @@ var params =
     coat_roughness:                      0.0,
     coat_anisotropy:                     0.0,
     coat_rotation:                       0.0,
-    coat_ior:                            1.3,
+    coat_ior:                            1.6,
     coat_darkening:                      1.0,
 
     fuzz_weight:                         0.0,
@@ -800,6 +800,7 @@ function load_geometry(scene_name)
 
 function load_scene(scene_name)
 {
+    console.log('Loading scene: ', scene_name);
     LOADED = false;
 
     create_materials()
@@ -903,10 +904,7 @@ function setup_gui()
     base_folder.add(params,          'base_weight', 0.0, 1.0).onChange(                               v => { resetSamples(); });
     base_folder.addColor(params,     'base_color').onChange(                                          v => { resetSamples(); });
     base_folder.add(params,          'base_roughness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
-    base_folder.add(params,          'base_metalness', 0.0, 1.0).onChange(                            v => { resetSamples();
-                                                                                                            if (volume_enabled() != materialDefines.VOLUME_ENABLED)
-                                                                                                                load_scene(params.scene_name);
-                                                                                                            });
+    base_folder.add(params,          'base_metalness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
 
     // Specular folder
     const specular_folder = material_folder.addFolder('Specular');
@@ -919,35 +917,18 @@ function setup_gui()
 
     // Transmission folder
     const transmission_folder = material_folder.addFolder('Transmission');
-    transmission_folder.add(params,      'transmission_weight', 0.0, 1.0).onChange(                   v => { resetSamples();
-                                                                                                            if (volume_enabled() != materialDefines.VOLUME_ENABLED)
-                                                                                                                load_scene(params.scene_name);
-                                                                                                            if (transmission_enabled() != materialDefines.TRANSMISSION_ENABLED)
-                                                                                                                load_scene(params.scene_name);
-                                                                                                        });
+    transmission_folder.add(params,      'transmission_weight', 0.0, 1.0).onChange(                   v => { resetSamples(); });
     transmission_folder.addColor(params, 'transmission_color').onChange(                              v => { resetSamples(); });
-    transmission_folder.add(params,      'transmission_depth', 0.0, 1.0).onChange(                    v => { resetSamples();
-                                                                                                            if (volume_enabled() != materialDefines.VOLUME_ENABLED)
-                                                                                                            {
-                                                                                                                load_scene(params.scene_name);
-                                                                                                            }});
+    transmission_folder.add(params,      'transmission_depth', 0.0, 1.0).onChange(                    v => { resetSamples(); });
     transmission_folder.addColor(params, 'transmission_scatter').onChange(                            v => { resetSamples(); });
     transmission_folder.add(params,      'transmission_scatter_anisotropy', -1.0, 1.0).onChange(      v => { resetSamples(); });
     transmission_folder.add(params,      'transmission_dispersion_abbe_number', 9.0, 91.0).onChange(  v => { resetSamples(); });
-    transmission_folder.add(params,      'transmission_dispersion_scale', 0.0, 1.0).onChange(         v => { resetSamples();
-                                                                                                            if (dispersion_enabled() != materialDefines.DISPERSION_ENABLED)
-                                                                                                                load_scene(params.scene_name);
-                                                                                                            });
+    transmission_folder.add(params,      'transmission_dispersion_scale', 0.0, 1.0).onChange(         v => { resetSamples(); });
     transmission_folder.close();
 
     // Subsurface folder
     const subsurface_folder = material_folder.addFolder('Subsurface');
-    subsurface_folder.add(params,      'subsurface_weight', 0.0, 1.0).onChange(                       v => { resetSamples();
-                                                                                                            if (volume_enabled() != materialDefines.VOLUME_ENABLED)
-                                                                                                                load_scene(params.scene_name);
-                                                                                                            if (transmission_enabled() != materialDefines.TRANSMISSION_ENABLED)
-                                                                                                                load_scene(params.scene_name);
-                                                                                                        });
+    subsurface_folder.add(params,      'subsurface_weight', 0.0, 1.0).onChange(                       v => { resetSamples(); });
     subsurface_folder.addColor(params, 'subsurface_color').onChange(                                  v => { resetSamples(); });
     subsurface_folder.add(params,      'subsurface_radius', 0.0, 1.0).onChange(                       v => { resetSamples(); });
     subsurface_folder.addColor(params, 'subsurface_radius_scale').onChange(                           v => { resetSamples(); });
@@ -956,9 +937,7 @@ function setup_gui()
 
     // Coat folder
     const coat_folder = material_folder.addFolder('Coat');
-    coat_folder.add(params,          'coat_weight', 0.0, 1.0).onChange(                               v => { resetSamples();
-                                                                                                            if (coat_enabled() != materialDefines.COAT_ENABLED)
-                                                                                                                load_scene(params.scene_name); });
+    coat_folder.add(params,          'coat_weight', 0.0, 1.0).onChange(                               v => { resetSamples(); });
     coat_folder.addColor(params,     'coat_color').onChange(                                          v => { resetSamples(); });
     coat_folder.add(params,          'coat_roughness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
     coat_folder.add(params,          'coat_ior', 1.0, 3.0).onChange(                                  v => { resetSamples(); });
@@ -969,9 +948,7 @@ function setup_gui()
 
     // Fuzz folder
     const fuzz_folder = material_folder.addFolder('Fuzz');
-    fuzz_folder.add(params,          'fuzz_weight', 0.0, 1.0).onChange(                               v => { resetSamples();
-                                                                                                            if (fuzz_enabled() != materialDefines.FUZZ_ENABLED)
-                                                                                                                load_scene(params.scene_name); });
+    fuzz_folder.add(params,          'fuzz_weight', 0.0, 1.0).onChange(                               v => { resetSamples(); });
     fuzz_folder.addColor(params,     'fuzz_color').onChange(                                          v => { resetSamples(); });
     fuzz_folder.add(params,          'fuzz_roughness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
     fuzz_folder.close();
@@ -984,9 +961,7 @@ function setup_gui()
 
     // Thin-film folder
     const thin_film_folder = material_folder.addFolder('Thin Film');
-    thin_film_folder.add(params,          'thin_film_weight', 0.0, 1.0).onChange(                     v => { resetSamples();
-                                                                                                        if (thin_film_enabled() != materialDefines.THIN_FILM_ENABLED)
-                                                                                                            load_scene(params.scene_name); });
+    thin_film_folder.add(params,          'thin_film_weight', 0.0, 1.0).onChange(                     v => { resetSamples(); });
     thin_film_folder.add(params,          'thin_film_thickness', 0.0, 2000.0).onChange(               v => { resetSamples(); });
     thin_film_folder.add(params,          'thin_film_ior', 1.0, 3.0).onChange(                        v => { resetSamples(); });
     thin_film_folder.close();
@@ -1010,21 +985,16 @@ function setup_gui()
 
     ///// Renderer folder /////////////////////////////////////
     const renderer_folder = gui.addFolder('Renderer');
-
-    renderer_folder.add(params, 'scene_name', scene_names).onChange(                                  v => { console.log(v);
-                                                                                                            load_scene(v);
-                                                                                                            resetSamples(); });
-
+    renderer_folder.add(params, 'scene_name', scene_names).onChange(                                  v => { load_scene(v);
+                                                                                                             resetSamples(); });
     renderer_folder.add( params, 'smooth_normals' ).onChange(                                         v => { resetSamples(); });
     renderer_folder.add( params, 'wireframe' ).onChange(                                              v => { resetSamples(); });
     renderer_folder.addColor(params, 'neutral_color').onChange(                                       v => { resetSamples(); });
     renderer_folder.add( params, 'bounces', 0, 100, 1 ).onChange(                                     v => { materialDefines.BOUNCES = parseInt( v );
-                                                                                                            resetSamples();
-                                                                                                            load_scene(params.scene_name); });
+                                                                                                             resetSamples(); } );
     renderer_folder.add( params, 'max_samples' ).onChange(                                            v => { resetSamples(); });
     renderer_folder.add( params, 'max_volume_steps', 1, 100, 1 ).onChange(                            v => { materialDefines.MAX_VOLUME_STEPS = parseInt( v );
-                                                                                                            resetSamples();
-                                                                                                            load_scene(params.scene_name); });
+                                                                                                             resetSamples(); } );
     renderer_folder.close();
 
     gui.add( params, 'reset_camera' );
@@ -1162,6 +1132,18 @@ function get_vector3(array3)
 function resetSamples()
 {
     samples = 0;
+
+    if (PATHTRACING)
+    {
+        let reload = false;
+        reload = reload || (materialDefines.FUZZ_ENABLED         != fuzz_enabled());
+        reload = reload || (materialDefines.COAT_ENABLED         != coat_enabled());
+        reload = reload || (materialDefines.TRANSMISSION_ENABLED != transmission_enabled());
+        reload = reload || (materialDefines.VOLUME_ENABLED       != volume_enabled());
+        reload = reload || (materialDefines.THIN_FILM_ENABLED    != thin_film_enabled());
+        if (reload)
+            load_scene(params.scene_name);
+    }
 }
 
 function fadeOutProgressBar(time_ms)
