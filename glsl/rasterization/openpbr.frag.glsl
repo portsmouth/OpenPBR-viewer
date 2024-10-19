@@ -276,6 +276,7 @@ vec3 FresnelConductorF82(float mu, vec3 F0, vec3 F82)
     return Fschlick - mu * pow(1.0 - mu, 6.0) * (vec3(1.0) - F82) * Fschlick_bar / denom;
 }
 
+// Dielectric Fresnel factor.
 // mui     = magnitude of the cosine of the incident ray angle to the micronormal
 // eta_ti  = ratio et/ei of the transmitted IOR (et) and incident IOR (ei)
 // Outputs vec2(rs, rp), the amplitudes of the S, P polarized reflection (where squared amplitudes give reflectance).
@@ -296,6 +297,29 @@ float FresnelDielectricReflectance(in float mui, in float eta_ti)
     // assuming unpolarized incident light
     vec2 r = FresnelDielectricPolarizations(mui, eta_ti);
     return 0.5*dot(r, r);
+}
+
+// Dielectric Fresnel factor, at normal incidence.
+float FresnelDielectricReflectanceNormal(float eta_ti)
+{
+    float etamo = eta_ti - 1.0;
+    float etapo = eta_ti + 1.0;
+    return sqr(etamo)/sqr(etapo);
+}
+
+float FresnelDielectricReflectanceAverage(float eta)
+{
+    // Hemispherical albedo of dielectric Fresnel
+    if (eta < 1.03)
+        return (eta - 1.0)/3.0; // limiting formula at low eta, accurate to < 0.2%
+    // exact formula (from d'Eon's Hitchhiker's Guide)
+    float etapo = eta + 1.0; float etamo = eta - 1.0;
+    float f_perp = 8.0/3.0*(etapo-0.5)/sqr(etapo);
+    float eta2 = sqr(eta); float eta3 = eta*eta2;
+    float eta2po = eta2 + 1.0; float eta2po2 = sqr(eta2po); float eta2po3 = eta2po2*eta2po;
+    float eta2mo = eta2 - 1.0; float eta2mo2 = sqr(eta2mo);
+    float f_para = 2.0*eta2*(2.0*eta*(eta2+2.0*eta-1.0)/(eta2po2*eta2mo) - eta2po*log(eta)/eta2mo2 + eta2mo2*log(eta*etapo/etamo)/eta2po3);
+    return 1.0 - 0.5*(f_perp + f_para);
 }
 
 float ggx_ndf_eval(in vec3 m, in vec2 alpha)
@@ -624,27 +648,59 @@ struct OpenPBRLobeWeights
     vec3 w[7];
 };
 
+
 void openpbr_lobe_weights(in vec3 V, const in OpenPBRMaterial pbr,
                           inout OpenPBRLobeWeights W)
 {
-    float F = pbr.fuzz_weight;
-    float C = pbr.coat_weight;
-    float M = pbr.base_metalness;
-    float T = pbr.transmission_weight;
-    float S = pbr.subsurface_weight;
+    float F  = pbr.fuzz_weight;
+    float C  = pbr.coat_weight;
+    float M  = pbr.base_metalness;
+    float T  = pbr.transmission_weight;
+    float S  = pbr.subsurface_weight;
+    float xi = pbr.specular_weight;
     bool has_fuzz              = (F > 0.0);
     bool has_coat              = (C > 0.0);
+    bool has_metal             = (M > 0.0);
     bool has_dielectric        = (M < 1.0);
+    bool has_transmission      = has_dielectric && (T > 0.0);
     bool has_dielectric_opaque = has_dielectric && (T < 1.0);
     bool has_diffuse           = has_dielectric_opaque && (S < 1.0);
+    bool has_subsurface        = has_dielectric_opaque && (S > 0.0);
+
+    // compute albedos of present slabs
+    vec3  fuzz_albedo = has_fuzz         ? fuzz_brdf_albedo(V, pbr)         : vec3(0.0);
+    vec3  coat_albedo = has_coat         ? coat_brdf_albedo(V, pbr)         : vec3(0.0);
+    vec3  spec_albedo = has_diffuse      ? specular_brdf_albedo(V, pbr)     : vec3(0.0);
+    vec3 trans_albedo = has_transmission ? vec3(1.0) - spec_albedo          : vec3(0.0);
+    vec3  meta_albedo = has_metal        ? metal_brdf_albedo(V, pbr)        : vec3(0.0);
+    vec3  diff_albedo = has_diffuse      ? pbr.base_weight * pbr.base_color : vec3(0.0);
+    vec3   sss_albedo = has_subsurface   ? pbr.subsurface_color             : vec3(0.0);
 
     // calculate slab weights according to layer structure
-    vec3 fuzz_albedo              = has_fuzz    ? fuzz_brdf_albedo(V, pbr)     : vec3(0.0);
-    vec3 coat_albedo              = has_coat    ? coat_brdf_albedo(V, pbr)     : vec3(0.0);
-    vec3 spec_albedo              = has_diffuse ? specular_brdf_albedo(V, pbr) : vec3(0.0);
-    vec3 base_darkening           = vec3(1.0); // TODO
-    vec3 w_coated_base            = mix(vec3(1.0), vec3(1.0) - fuzz_albedo, F);
-    vec3 w_base_substrate         = w_coated_base * mix(vec3(1.0), base_darkening * pbr.coat_color * (vec3(1.0) - coat_albedo), C);
+    vec3 w_coated_base = mix(vec3(1.0), vec3(1.0) - fuzz_albedo, F);
+    vec3 w_base_substrate;
+    if (has_coat)
+    {
+        vec3 base_darkening = vec3(1.0);
+        if (coat_darkening > 0.0)
+        {
+            float Kr = 1.0 - (1.0 - FresnelDielectricReflectanceAverage(coat_ior))/sqr(coat_ior);
+            float Ks = FresnelDielectricReflectance(abs(V.z), coat_ior);
+            float Fs = FresnelDielectricReflectanceNormal(specular_ior_ratio(pbr));
+            float rd = mix(1.0, pbr.specular_roughness, min(1.f, xi*Fs)); // estimate of roughness of dielectric base
+            float rm = specular_roughness;                                // roughness of metallic base
+            float rb = mix(rd, rm, M);                                    // thus estimated roughness of entire base
+            float K = mix(Ks, Kr, rb);  // thus estimated internal diffuse reflection coeff.
+            vec3 E_dielectric_base = mix(mix(diff_albedo, sss_albedo, S), trans_albedo, T); // dielectric base albedo
+            vec3 E_base = mix(E_dielectric_base, meta_albedo, M);                           // entire base albedo
+            vec3 Delta = (1.0 - K) / vec3(1.0 - E_base*K);              // full darkening factor
+            base_darkening = mix(vec3(1.0), Delta, C * coat_darkening); // modulated darkening factor
+        }
+        w_base_substrate = w_coated_base * mix(vec3(1.0), base_darkening * pbr.coat_color * (vec3(1.0) - coat_albedo), C);
+    }
+    else
+        w_base_substrate = w_coated_base;
+
     vec3 w_dielectric_base        = w_base_substrate * vec3(max(0.0, 1.0 - M));
     vec3 w_opaque_dielectric_base = w_dielectric_base * (1.0 - T);
     vec3 w_glossy_diffuse_base    = w_opaque_dielectric_base * (vec3(1.0) - spec_albedo);
