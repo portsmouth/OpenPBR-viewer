@@ -111,9 +111,9 @@ void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
         }
         w_base_substrate = w_coated_base * mix(vec3(1.0), base_darkening * coat_color * (vec3(1.0) - albedos.m[ID_COAT_BRDF]), C);
     }
-#else
-    w_base_substrate = w_coated_base;
+    else
 #endif // COAT_ENABLED
+    w_base_substrate = w_coated_base;
 
     // Metal BRDF
     weights.m[ID_META_BRDF] = w_base_substrate * M;
