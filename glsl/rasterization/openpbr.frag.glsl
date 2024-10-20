@@ -95,6 +95,7 @@ const float RECIPROCAL_PI         = 0.3183098861837907;
 // tolerances
 const float DENOM_TOLERANCE       = 1.0e-10;
 const float PDF_EPSILON           = 1.0e-6;
+const float IOR_EPSILON           = 1.0e-5;
 const float FLT_EPSILON           = 1.1920929e-7;
 const float ALPHA_TOLERANCE       = 1.0e-4;
 
@@ -322,6 +323,18 @@ float FresnelDielectricReflectanceAverage(float eta)
     return 1.0 - 0.5*(f_perp + f_para);
 }
 
+// Given the direction (wt) of a light beam transmitted through a plane dielectric interface
+// with the given normal (n) in any orientation, and the ratio eta_ti_photon = nt/ni of the transmitted IOR (nt) and incident IOR (ni),
+// compute the direction of the incident light beam (wi). Returns false if no such beam exists, due to total internal reflection.
+bool FresnelDielectricRefraction(in vec3 n, in float eta_ti_photon, in vec3 wt, inout vec3 wi)
+{
+    float wtn = dot(wt, n);
+    float disciminant = 1.0 - sqr(eta_ti_photon)*(1.0 - sqr(wtn));
+    if (disciminant < 0.0) return false;
+    wi = eta_ti_photon*wt - n*sign(wtn)*(eta_ti_photon*abs(wtn) - sqrt(disciminant));
+    return true;
+}
+
 float ggx_ndf_eval(in vec3 m, in vec2 alpha)
 {
     // Evaluate the anisotropic GGX NDF
@@ -431,13 +444,13 @@ vec3 fuzz_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 // coat/specular dielectric BRDFs
 ///////////////////////////////////////////////////////////////////////
 
-struct DielectricBRDFParams
+struct DielectricBSDFParams
 {
     float eta_ie; // internal/external IOR ratio
     vec2 alpha;   // alpha roughnesses
 };
 
-vec3 dielectric_brdf_evaluate(in vec3 V, in vec3 L, const in DielectricBRDFParams P)
+vec3 dielectric_brdf_evaluate(in vec3 V, in vec3 L, const in DielectricBSDFParams P)
 {
     vec3 H = normalize(V + L); // Micronormal
     if (dot(H, V) < 0.0 || dot(H, L) < 0.0)
@@ -445,12 +458,12 @@ vec3 dielectric_brdf_evaluate(in vec3 V, in vec3 L, const in DielectricBRDFParam
     float F = FresnelDielectricReflectance(abs(dot(V, H)), P.eta_ie); // Dielectric Fresnel
     float D = ggx_ndf_eval(H, P.alpha); // NDF
     float G2 = ggx_G2(V, L, P.alpha); // Shadowing-masking term
-    float J = 1.0 / max(4.0 * abs(V.z) * abs(L.z), DENOM_TOLERANCE); // Jacobian
+    float J = 1.0 / max(4.0 * abs(V.z) * abs(L.z), DENOM_TOLERANCE); // Jacobian of half-direction mapping
     float f = F * D * G2 * J;
     return vec3(f);
 }
 
-vec3 dielectric_brdf_albedo(in vec3 V, const in DielectricBRDFParams P)
+vec3 dielectric_brdf_albedo(in vec3 V, const in DielectricBSDFParams P)
 {
     // Approximate albedo via (deterministic) Monte-Carlo sampling:
     uint rndSeed = 0u;
@@ -478,7 +491,7 @@ vec2 coat_ndf_roughnesses(const in OpenPBRMaterial pbr)
 
 vec3 coat_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 {
-    DielectricBRDFParams P;
+    DielectricBSDFParams P;
     P.eta_ie = pbr.coat_ior; // (assuming here that ambient IOR is 1)
     P.alpha  = coat_ndf_roughnesses(pbr);
     return dielectric_brdf_evaluate(V, L, P);
@@ -486,7 +499,7 @@ vec3 coat_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 
 vec3 coat_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 {
-    DielectricBRDFParams P;
+    DielectricBSDFParams P;
     P.eta_ie = pbr.coat_ior; // (assume ambient IOR is 1)
     P.alpha  = coat_ndf_roughnesses(pbr);
     return dielectric_brdf_albedo(V, P);
@@ -512,7 +525,7 @@ vec2 specular_ndf_roughnesses(const in OpenPBRMaterial pbr)
 
 vec3 specular_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 {
-    DielectricBRDFParams P;
+    DielectricBSDFParams P;
     P.eta_ie = specular_ior_ratio(pbr);
     P.alpha  = specular_ndf_roughnesses(pbr);
     return dielectric_brdf_evaluate(V, L, P);
@@ -520,7 +533,7 @@ vec3 specular_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 
 vec3 specular_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 {
-    DielectricBRDFParams P;
+    DielectricBSDFParams P;
     P.eta_ie = specular_ior_ratio(pbr);
     P.alpha  = specular_ndf_roughnesses(pbr);
     return dielectric_brdf_albedo(V, P);
@@ -540,7 +553,7 @@ vec3 metal_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
     vec2 alpha = specular_ndf_roughnesses(pbr);
     float D = ggx_ndf_eval(H, alpha); // NDF
     float G2 = ggx_G2(V, L, alpha); // Shadowing-masking term
-    float J = 1.0 / max(4.0 * abs(V.z) * abs(L.z), DENOM_TOLERANCE); // Jacobian
+    float J = 1.0 / max(4.0 * abs(V.z) * abs(L.z), DENOM_TOLERANCE); // Jacobian of half-direction mapping
     vec3 f = min(vec3(1.0), pbr.specular_weight*F) * D * G2 * J;
     return f;
 }
@@ -574,12 +587,50 @@ vec3 metal_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 
 vec3 specular_btdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 {
-    return vec3(0.0);
+    vec3 H = normalize(V + L); // Micronormal
+    float eta_ie = specular_ior_ratio(pbr);
+    vec2   alpha = specular_ndf_roughnesses(pbr);
+    vec3 tint = (pbr.transmission_depth == 0.0) ? pbr.transmission_color : vec3(1.0); // non-physical tint
+    float T = max(0.0, 1.0 - FresnelDielectricReflectance(abs(dot(V, H)), eta_ie)); // dielectric Fresnel transmittance
+    vec3 beamOutgoingL = V;
+    float eta_ti_photon = 1.0 / eta_ie;
+    if (abs(eta_ti_photon - 1.0) < IOR_EPSILON)
+        return tint * T;
+    vec3 beamIncidentR = -L;
+    vec3 beamOutgoingR = V;
+    float im = dot(-beamIncidentR, H);
+    float J; // Jacobian of half-direction mapping
+    {
+        float om = dot(beamOutgoingR, H);
+        J = sqr(eta_ti_photon) * abs(om) / max(sqr(im + eta_ti_photon*om), DENOM_TOLERANCE);
+    }
+    float D = ggx_ndf_eval(H, alpha); // NDF
+    float G2 = ggx_G2(V, L, alpha); // Shadowing-masking term
+    vec3 f = tint * T * abs(dot(V, H)) * J * G2 * D / max(abs(L.z) * abs(V.z), DENOM_TOLERANCE);
+    return f;
 }
 
 vec3 specular_btdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 {
-    return vec3(0.0);
+    DielectricBSDFParams P;
+    float eta_ie = specular_ior_ratio(pbr);
+    vec2   alpha = specular_ndf_roughnesses(pbr);
+    // Approximate albedo via (deterministic) Monte-Carlo sampling:
+    uint rndSeed = 0u;
+    const int num_samples = 4;
+    float albedo = 0.0;
+    for (int n=0; n<num_samples; ++n)
+    {
+        vec3 L = ggx_ndf_sample(V, alpha, rndSeed);
+        float G2 = ggx_G2(V, L, alpha);
+        float G1 = ggx_G1(V, alpha);
+        vec3 H = normalize(V + L);
+        float T = max(0.0, 1.0 - FresnelDielectricReflectance(abs(dot(V, H)), eta_ie));
+        albedo += T * G2 /  max(G1, DENOM_TOLERANCE);
+    }
+    albedo /= float(num_samples);
+    vec3 tint = (pbr.transmission_depth == 0.0) ? pbr.transmission_color : vec3(1.0); // non-physical tint
+    return clamp(tint*vec3(albedo), vec3(0.0), vec3(1.0));
 }
 
 
@@ -837,11 +888,11 @@ void main()
 
         // Sky contribution
         {
-            vec3 Lworld = normalize(-Vworld + 2.0*dot(Nworld, Vworld)*Nworld); // query env map at direction reflect(V, N)
+            vec3 Lworld_reflect = normalize(-Vworld + 2.0*dot(Nworld, Vworld)*Nworld); // query env map at direction reflect(V, N)
 
             // diffuse contribution
             {
-                vec4 diff_env = textureLod(envMap, vec3(Lworld.x, Lworld.yz), 100.0);
+                vec4 diff_env = textureLod(envMap, vec3(Lworld_reflect.x, Lworld_reflect.yz), 100.0);
                 vec3 diffuse_albedo = vec3(0.0);
                 diffuse_albedo += openpbr_lobe_albedo(ID_DIFF_BRDF, Vlocal, W, pbr);
                 diffuse_albedo += openpbr_lobe_albedo(ID_FUZZ_BRDF, Vlocal, W, pbr);
@@ -854,7 +905,7 @@ void main()
             // specular contribution
             {
                 float lod = specular_roughness > 0.0 ? max(0.0, 1.0 + log2(float(env_max_res)*sqr(specular_roughness))) : 0.0;
-                vec4 spec_env = textureLod(envMap, vec3(Lworld.x, Lworld.yz), lod);
+                vec4 spec_env = textureLod(envMap, vec3(Lworld_reflect.x, Lworld_reflect.yz), lod);
                 vec3 specular_albedo = vec3(0.0);
                 specular_albedo += openpbr_lobe_albedo(ID_SPEC_BRDF, Vlocal, W, pbr);
                 specular_albedo += openpbr_lobe_albedo(ID_META_BRDF, Vlocal, W, pbr);
@@ -864,9 +915,25 @@ void main()
             // coat contribution
             {
                 float lod = coat_roughness > 0.0 ? max(0.0, 1.0 + log2(float(env_max_res)*sqr(coat_roughness))) : 0.0;
-                vec4 spec_env = textureLod(envMap, vec3(Lworld.x, Lworld.yz), lod);
+                vec4 spec_env = textureLod(envMap, vec3(Lworld_reflect.x, Lworld_reflect.yz), lod);
                 vec3 coat_albedo = openpbr_lobe_albedo(ID_COAT_BRDF, Vlocal, W, pbr);
                 radiance += skyColor * skyPower * spec_env.rgb * coat_albedo;
+            }
+
+            // transmission contribution
+            {
+                float eta_ie = specular_ior_ratio(pbr);
+                float eta_ti_photon = 1.0 / eta_ie;
+                vec3 beamOutgoingW = Vworld;
+                vec3 beamIncidentW; // the incident photon direction, to be determined (where woutputR = -beamIncidentR)
+                if (FresnelDielectricRefraction(Nworld, eta_ti_photon, beamOutgoingW, beamIncidentW))
+                {
+                    vec3 Lworld_refract = -safe_normalize(beamIncidentW);
+                    float lod = specular_roughness > 0.0 ? max(0.0, 1.0 + log2(float(env_max_res)*sqr(specular_roughness))) : 0.0;
+                    vec4 spec_env = textureLod(envMap, vec3(Lworld_refract.x, Lworld_refract.yz), lod);
+                    vec3 specular_albedo = openpbr_lobe_albedo(ID_SPEC_BTDF, Vlocal, W, pbr);
+                    radiance += skyColor * skyPower * spec_env.rgb * specular_albedo;
+                }
             }
         }
     }
