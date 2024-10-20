@@ -45,51 +45,51 @@ import { Circle } from 'progressbar.js'
 
 class MeshLoader
 {
-constructor()
-{
-   this.result = null;
-   this.loader = new GLTFLoader();
-}
+    constructor()
+    {
+        this.result = null;
+        this.loader = new GLTFLoader();
+    }
 
-reset()
-{
-   this.result = null;
-}
+    reset()
+    {
+        this.result = null;
+    }
 
-async load(path)
-{
-   if (this.result) Promise.resolve(this.result);
+    async load(path)
+    {
+        if (this.result) Promise.resolve(this.result);
 
-   let gltf = await this.loader.loadAsync(path);
-   let S = Array.isArray( gltf.scene ) ? gltf.scene : [ gltf.scene ];
-   const meshes = [];
+        let gltf = await this.loader.loadAsync(path);
+        let S = Array.isArray( gltf.scene ) ? gltf.scene : [ gltf.scene ];
+        const meshes = [];
 
-   for ( let i = 0, l = S.length; i < l; i++ )
-   {
-       S[i].traverseVisible( c =>
-           {
-               if (c.isMesh)
-               {
-                   meshes.push(c);
-               }
-           }
-       )
-   }
+        for ( let i = 0, l = S.length; i < l; i++ )
+        {
+            S[i].traverseVisible( c =>
+                {
+                    if (c.isMesh)
+                    {
+                        meshes.push(c);
+                    }
+                }
+            )
+        }
 
-   if (meshes.length > 0)
-   {
-       const generator = new StaticGeometryGenerator(meshes);
-       generator.attributes = [ 'position', 'color', 'normal', 'tangent', 'uv', 'uv2' ];
-       generator.applyWorldTransforms = false;
-       let merged_mesh = new Mesh(generator.generate(), new MeshStandardMaterial());
+        if (meshes.length > 0)
+        {
+            const generator = new StaticGeometryGenerator(meshes);
+            generator.attributes = [ 'position', 'color', 'normal', 'tangent', 'uv', 'uv2' ];
+            generator.applyWorldTransforms = false;
+            let merged_mesh = new Mesh(generator.generate(), new MeshStandardMaterial());
 
-       let bvh = new MeshBVH( merged_mesh.geometry, { strategy: SAH, maxLeafTris: 1 } );
-       this.result = {scene:gltf.scene, bvh:bvh, mesh:merged_mesh};
-       console.log("==> loaded mesh ", path);
-   }
+            let bvh = new MeshBVH( merged_mesh.geometry, { strategy: SAH, maxLeafTris: 1 } );
+            this.result = {scene:gltf.scene, bvh:bvh, mesh:merged_mesh};
+            console.log("==> loaded mesh ", path);
+        }
 
-   return this.result;
-}
+        return this.result;
+    }
 }
 
 function array_to_vector3(array)
@@ -105,7 +105,7 @@ var params =
 
     scene_name:                         'standard-shader-ball',
     smooth_normals:                     true,
-    bounces:                            2,
+    bounces:                            6,
     max_samples:                        1024,
     max_volume_steps:                   8,
     wireframe:                          false,
@@ -191,6 +191,7 @@ var materialDefines = {
     THIN_FILM_ENABLED:    false
 };
 
+var mesh_loader;
 var renderer, camera, orbitControls, scene, gui, stats;
 var pathtracedQuad, pathtracedFinalQuad, pathtracingRenderTarget;
 var pathtracedMaterial = null;
@@ -675,6 +676,8 @@ function init()
     // initialize the scene and update the material properties with the bvh, materials, etc
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+    mesh_loader = new MeshLoader();
+
     load_scene(params.scene_name);
 }
 
@@ -696,15 +699,13 @@ function load_geometry(scene_name)
         pathtracedMaterial.uniforms.envMap.value = env_map_texture;
     }
 
-    let loader = new MeshLoader();
-
     // Load "neutral" objects (i.e. Lambert shaded background stuff)
-    loader.load(scene_name + '/neutral_objects.glb').then( () => {
+    mesh_loader.load(scene_name + '/neutral_objects.glb').then( () => {
 
         if (!PATHTRACING)
         {
             // Set up mesh properties for rasterization
-            loader.result.scene.traverse((o) => {
+            mesh_loader.result.scene.traverse((o) => {
                 if (o.isMesh)
                 {
                     o.material = neutralMaterial;
@@ -715,14 +716,14 @@ function load_geometry(scene_name)
             });
         }
 
-        scene.add(loader.result.scene);
+        scene.add(mesh_loader.result.scene);
 
-        MESH_PROPS = loader.result.mesh;
+        MESH_PROPS = mesh_loader.result.mesh;
 
         if (PATHTRACING)
         {
             // Set up mesh properties for pathtracing
-            BVH_PROPS  = loader.result.bvh;
+            BVH_PROPS  = mesh_loader.result.bvh;
             pathtracedMaterial.uniforms.bvh_props.value.updateFrom( BVH_PROPS );
             pathtracedMaterial.uniforms.has_normals_props.value = false;
             pathtracedMaterial.uniforms.has_tangents_props.value = false;
@@ -741,15 +742,15 @@ function load_geometry(scene_name)
         }
 
         progress_bar.animate(0.5);
-        loader.reset();
+        mesh_loader.reset();
 
         // Load OpenPBR-shaded objects
-        loader.load(scene_name + '/openpbr_objects.glb').then( () => {
+        mesh_loader.load(scene_name + '/openpbr_objects.glb').then( () => {
 
             if (!PATHTRACING)
             {
                 // Set up mesh properties for rasterization
-                loader.result.scene.traverse((o) => {
+                mesh_loader.result.scene.traverse((o) => {
                     if (o.isMesh)
                     {
                         o.material = openpbrMaterial;
@@ -759,14 +760,14 @@ function load_geometry(scene_name)
                 });
             }
 
-            scene.add(loader.result.scene);
+            scene.add(mesh_loader.result.scene);
 
-            MESH_SURFACE = loader.result.mesh;
+            MESH_SURFACE = mesh_loader.result.mesh;
 
             if (PATHTRACING)
             {
                 // Set up mesh properties for pathtracing
-                BVH_SURFACE  = loader.result.bvh;
+                BVH_SURFACE  = mesh_loader.result.bvh;
                 pathtracedMaterial.uniforms.bvh_surface.value.updateFrom( BVH_SURFACE );
                 pathtracedMaterial.uniforms.has_normals_surface.value = false;
                 pathtracedMaterial.uniforms.has_tangents_surface.value = false;
@@ -985,16 +986,15 @@ function setup_gui()
 
     ///// Renderer folder /////////////////////////////////////
     const renderer_folder = gui.addFolder('Renderer');
-    renderer_folder.add(params, 'scene_name', scene_names).onChange(                                  v => { load_scene(v);
-                                                                                                             resetSamples(); });
+    renderer_folder.add(params, 'scene_name', scene_names).onChange(                                  v => { load_scene(v); });
     renderer_folder.add( params, 'smooth_normals' ).onChange(                                         v => { resetSamples(); });
     renderer_folder.add( params, 'wireframe' ).onChange(                                              v => { resetSamples(); });
     renderer_folder.addColor(params, 'neutral_color').onChange(                                       v => { resetSamples(); });
     renderer_folder.add( params, 'bounces', 0, 100, 1 ).onChange(                                     v => { materialDefines.BOUNCES = parseInt( v );
-                                                                                                             resetSamples(); } );
-    renderer_folder.add( params, 'max_samples' ).onChange(                                            v => { resetSamples(); });
+                                                                                                             load_scene(params.scene_name); } );
+    renderer_folder.add( params, 'max_samples' ).onChange(                                            v => { load_scene(params.scene_name); });
     renderer_folder.add( params, 'max_volume_steps', 1, 100, 1 ).onChange(                            v => { materialDefines.MAX_VOLUME_STEPS = parseInt( v );
-                                                                                                             resetSamples(); } );
+                                                                                                             load_scene(params.scene_name); } );
     renderer_folder.close();
 
     gui.add( params, 'reset_camera' );
