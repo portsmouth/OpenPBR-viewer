@@ -131,6 +131,7 @@ var params =
     base_color:                          [0.8, 0.8, 0.8],
     base_roughness:                      0.0,
     base_metalness:                      0.0,
+    diffuse_mode:                        0,
 
     specular_weight:                     1.0,
     specular_color:                      [1.0, 1.0, 1.0],
@@ -214,6 +215,11 @@ var LOADED;
 var COMPILING;
 var PATHTRACING;
 var samples = 0;
+
+var diffuse_mode_names = {
+    'EON':                        0,
+    'd\'Eon sphere model':        1
+}
 
 var scene_names = {
     'Standard Shader Ball': 'standard-shader-ball',
@@ -350,6 +356,7 @@ function create_materials()
                         base_color:                          { value: array_to_vector3(params.base_color) },
                         base_roughness:                      { value: params.base_roughness },
                         base_metalness:                      { value: params.base_metalness },
+                        diffuse_mode:                        { value: params.diffuse_mode },
 
                         specular_weight:                     { value: params.specular_weight, },
                         specular_color:                      { value: array_to_vector3(params.specular_color) },
@@ -515,6 +522,7 @@ function create_materials()
                 base_color:                          { value: array_to_vector3(params.base_color) },
                 base_roughness:                      { value: params.base_roughness },
                 base_metalness:                      { value: params.base_metalness },
+                diffuse_mode:                        { value: params.diffuse_mode },
 
                 specular_weight:                     { value: params.specular_weight, },
                 specular_color:                      { value: array_to_vector3(params.specular_color) },
@@ -906,6 +914,7 @@ function setup_gui()
     base_folder.addColor(params,     'base_color').onChange(                                          v => { resetSamples(); });
     base_folder.add(params,          'base_roughness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
     base_folder.add(params,          'base_metalness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
+    base_folder.add(params,          'diffuse_mode', diffuse_mode_names).onChange(                    v => { resetSamples(); });
 
     // Specular folder
     const specular_folder = material_folder.addFolder('Specular');
@@ -1188,6 +1197,7 @@ function sync_shader_uniforms(uniforms)
     uniforms.base_color.value.copy(get_vector3(             params.base_color));
     uniforms.base_roughness.value                         = params.base_roughness;
     uniforms.base_metalness.value                         = params.base_metalness;
+    uniforms.diffuse_mode.value                           = params.diffuse_mode;
 
     uniforms.specular_weight.value                        = params.specular_weight;
     uniforms.specular_color.value.copy(get_vector3(         params.specular_color));
