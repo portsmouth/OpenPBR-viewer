@@ -44,6 +44,7 @@ uniform float base_weight;
 uniform vec3  base_color;
 uniform float base_roughness;
 uniform float base_metalness;
+uniform int   diffuse_mode; // FOR TESTING
 
 uniform float specular_weight;
 uniform vec3  specular_color;
