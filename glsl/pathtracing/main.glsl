@@ -44,7 +44,6 @@ uniform float base_weight;
 uniform vec3  base_color;
 uniform float base_roughness;
 uniform float base_metalness;
-uniform int   diffuse_mode; // FOR TESTING
 
 uniform float specular_weight;
 uniform vec3  specular_color;
@@ -351,15 +350,28 @@ bool cutout(in int material, inout uint rndSeed)
 
 // mui     = magnitude of the cosine of the incident ray angle to the micronormal
 // eta_ti  = ratio et/ei of the transmitted IOR (et) and incident IOR (ei)
-// Outputs vec2(rs, rp), the amplitudes of the S, P polarized reflection (where squared amplitudes give reflectance).
-vec2 FresnelDielectricPolarizations(float mui, float eta_ti)
+// Outputs vec2(rs, rp), the real amplitude (and sign) of the S, P polarized reflection (where squared amplitudes give reflectance).
+vec2 FresnelDielectricReflectionPolarizations(float mui, float eta_ti)
 {
     float mut2 = sqr(eta_ti) - (1.0 - sqr(mui));
     if (mut2 <= 0.0) return vec2(1.0, 1.0); // (total internal reflection)
     float mut = sqrt(mut2) / eta_ti;
     float rs = (mui - eta_ti*mut) / (mui + eta_ti*mut);
-    float rp = (mut - eta_ti*mui) / (mut + eta_ti*mui);
+    float rp = (eta_ti*mui - mut) / (mut + eta_ti*mui);
     return vec2(rs, rp);
+}
+
+// mui     = magnitude of the cosine of the incident ray angle to the micronormal
+// eta_ti  = ratio et/ei of the transmitted IOR (et) and incident IOR (ei)
+// Outputs vec2(rs, rp),  the real amplitude (and sign) of the S, P polarized transmission (where squared amplitudes give transmittance).
+vec2 FresnelDielectricTransmissionPolarizations(float mui, float eta_ti)
+{
+    float mut2 = sqr(eta_ti) - (1.0 - sqr(mui));
+    if (mut2 <= 0.0) return vec2(0.0, 0.0); // (total internal reflection)
+    float mut = sqrt(mut2) / eta_ti;
+    float ts = 2.0 * mui / (mui + eta_ti*mut);
+    float tp = 2.0 * mui / (mut + eta_ti*mui);
+    return vec2(ts, tp);
 }
 
 // mui     = magnitude of the cosine of the incident ray angle to the micronormal
@@ -367,8 +379,45 @@ vec2 FresnelDielectricPolarizations(float mui, float eta_ti)
 float FresnelDielectricReflectance(in float mui, in float eta_ti)
 {
     // assuming unpolarized incident light
-    vec2 r = FresnelDielectricPolarizations(mui, eta_ti);
+    vec2 r = FresnelDielectricReflectionPolarizations(mui, eta_ti);
     return 0.5*dot(r, r);
+}
+
+// Returns the complex Fresnel reflection coefficient,
+// at an interface between pure dielectric d, and conductor c
+// for the two polarizations:
+//    - rab_perp: complex reflection coefficient for s (perpendicular) polarization
+//    - rab_para: complex reflection coefficient for p (parallel) polarization
+// given:
+//    - mu_d:  angle cosine of incidence in dielectric d
+//    - eta_d: IOR of dielectric d              (i.e. real  part of complex IOR)
+//    - eta_c: IOR of conductor c               (i.e. real  part of complex IOR)
+//    - k_c:   absorption coeff. of conductor c (i.e. imag. part of complex IOR)
+void FresnelConductorReflectionPolarizations(float mu_d, float eta_d, float eta_c, float k_c,
+                                             inout vec2 rab_perp, inout vec2 rab_para)
+{
+    float sintheta_d_sqr = 1.0 - mu_d * mu_d;
+    float U = sqr(eta_c) - sqr(k_c) - sqr(eta_d)*sintheta_d_sqr;
+    float V2 = sqr(U) + 4.0*sqr(k_c*eta_c);
+    float V = sqrt(V2);
+    float ub = sqrt(U+V)/sqrt(2.0);
+    float vb = sqrt(V-U)/sqrt(2.0);
+
+    // perp. polarization
+    float rab_perp_mag        = sqrt((sqr(eta_d*mu_d - ub) + sqr(vb)) / (sqr(eta_d*mu_d + ub) + sqr(vb)));
+    float tanphiab_perp_numer = 2.0*vb*eta_d*mu_d;
+    float tanphiab_perp_denom = sqr(ub) + sqr(vb) - sqr(eta_d*mu_d);
+    float phiab_perp          = atan(tanphiab_perp_numer, tanphiab_perp_denom);
+    rab_perp                  = rab_perp_mag * vec2(cos(phiab_perp), sin(phiab_perp));
+
+    // parallel. polarization
+    float rab_para_numer      = sqr((sqr(eta_c) - sqr(k_c))*mu_d - eta_d*ub) + sqr(2.0*eta_c*k_c*mu_d - eta_d*vb);
+    float rab_para_denom      = sqr((sqr(eta_c) - sqr(k_c))*mu_d + eta_d*ub) + sqr(2.0*eta_c*k_c*mu_d + eta_d*vb);
+    float rab_para_mag        = sqrt(rab_para_numer / rab_para_denom);
+    float tanphiab_para_numer = 2.0*eta_d*mu_d * (2.0*eta_c*k_c*ub - (sqr(eta_c) - sqr(k_c))*vb);
+    float tanphiab_para_denom = sqr(sqr(eta_c) + sqr(k_c))*sqr(mu_d) - sqr(eta_d)*(sqr(ub) + sqr(vb));
+    float phiab_para          = atan(tanphiab_para_numer, tanphiab_para_denom);
+    rab_para                  = rab_para_mag * vec2(cos(phiab_para), sin(phiab_para));
 }
 
 vec3 FresnelSchlick(vec3 F0, float mu)
