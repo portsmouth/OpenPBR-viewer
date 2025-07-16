@@ -169,7 +169,7 @@ vec3 neutral_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint
 vec3 evaluateBsdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL, in int material,
                   inout float pdf_woutputL)
 {
-    if (material == MATERIAL_OPENPBR) return diffuse_brdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
+    if (material == MATERIAL_OPENPBR) return openpbr_bsdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
     else                              return neutral_brdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
 }
 
@@ -177,7 +177,7 @@ vec3 evaluateBsdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
 vec3 sampleBsdf(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed, in int material,
                 out vec3 woutputL, out float pdf_woutputL, out Volume internal_medium)
 {
-    if (material == MATERIAL_OPENPBR) return diffuse_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_woutputL);
+    if (material == MATERIAL_OPENPBR) return openpbr_bsdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_woutputL, internal_medium);
     else                              return neutral_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_woutputL);
 }
 
