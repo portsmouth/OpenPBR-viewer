@@ -32,7 +32,6 @@ uniform float specular_weight;
 uniform vec3  specular_color;
 uniform float specular_roughness;
 uniform float specular_anisotropy;
-uniform float specular_rotation;
 uniform float specular_ior;
 
 uniform float transmission_weight;
@@ -53,7 +52,6 @@ uniform float coat_weight;
 uniform vec3  coat_color;
 uniform float coat_roughness;
 uniform float coat_anisotropy;
-uniform float coat_rotation;
 uniform float coat_ior;
 uniform float coat_darkening;
 
@@ -109,7 +107,6 @@ struct OpenPBRMaterial
     vec3  specular_color;
     float specular_roughness;
     float specular_anisotropy;
-    float specular_rotation;
     float specular_ior;
     float transmission_weight;
     vec3  transmission_color;
@@ -127,7 +124,6 @@ struct OpenPBRMaterial
     vec3  coat_color;
     float coat_roughness;
     float coat_anisotropy;
-    float coat_rotation;
     float coat_ior;
     float coat_darkening;
     float fuzz_weight;
@@ -152,7 +148,6 @@ void openpbr_init_material(inout OpenPBRMaterial M)
     M.specular_color                      = specular_color;
     M.specular_roughness                  = specular_roughness;
     M.specular_anisotropy                 = specular_anisotropy;
-    M.specular_rotation                   = specular_rotation;
     M.specular_ior                        = specular_ior;
     M.transmission_weight                 = transmission_weight;
     M.transmission_color                  = transmission_color;
@@ -170,7 +165,6 @@ void openpbr_init_material(inout OpenPBRMaterial M)
     M.coat_color                          = coat_color;
     M.coat_roughness                      = coat_roughness;
     M.coat_anisotropy                     = coat_anisotropy;
-    M.coat_rotation                       = coat_rotation;
     M.coat_ior                            = coat_ior;
     M.coat_darkening                      = coat_darkening;
     M.fuzz_weight                         = fuzz_weight;
@@ -931,7 +925,7 @@ void main()
                 float eta_ie = specular_ior_modulated(pbr); // (assuming here that ambient IOR is 1)
                 float eta_ti_photon = 1.0 / eta_ie;
                 vec3 beamOutgoingW = Vworld;
-                vec3 beamIncidentW; // the incident photon direction, to be determined (where woutputR = -beamIncidentR)
+                vec3 beamIncidentW; // the incident photon direction, to be determined (where woutputL = -beamIncidentR)
                 if (FresnelDielectricRefraction(Nworld, eta_ti_photon, beamOutgoingW, beamIncidentW))
                 {
                     vec3 Lworld_refract = -safe_normalize(beamIncidentW);

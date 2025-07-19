@@ -49,7 +49,6 @@ uniform float specular_weight;
 uniform vec3  specular_color;
 uniform float specular_roughness;
 uniform float specular_anisotropy;
-uniform float specular_rotation;
 uniform float specular_ior;
 
 uniform float transmission_weight;
@@ -70,7 +69,6 @@ uniform float coat_weight;
 uniform vec3  coat_color;
 uniform float coat_roughness;
 uniform float coat_anisotropy;
-uniform float coat_rotation;
 uniform float coat_ior;
 uniform float coat_darkening;
 
@@ -87,6 +85,17 @@ uniform vec3  emission_color;
 
 uniform float geometry_opacity;
 uniform bool geometry_thin_walled;
+
+//////////////////////////////////////////////////////
+// enabled uniforms
+//////////////////////////////////////////////////////
+
+uniform bool fuzz_enabled;
+uniform bool coat_enabled;
+uniform bool transmission_enabled;
+uniform bool volume_enabled;
+uniform bool dispersion_enabled;
+uniform bool thin_film_enabled;
 
 //////////////////////////////////////////////////////
 // lighting uniforms
@@ -381,6 +390,31 @@ float FresnelDielectricReflectance(in float mui, in float eta_ti)
     // assuming unpolarized incident light
     vec2 r = FresnelDielectricReflectionPolarizations(mui, eta_ti);
     return 0.5*dot(r, r);
+}
+
+//  specular_weight (>= 0) modulates the Fresnel F0 linearly
+float FresnelDielectricReflectanceModulated(in float mui, in float eta_ti)
+{
+    if (specular_weight != 1.f)
+    {
+        // Compute modified IOR ratio
+        float F0 = sqr((eta_ti - 1.0)/(eta_ti + 1.0));
+        float xi_s = clamp(specular_weight, 0.0, 1.0/max(F0, DENOM_TOLERANCE));
+        float tmp = sign(eta_ti - 1.0) * min(sqrt(xi_s * F0), 1.0);
+        float eta_ti_prime = (1.0 + tmp) / max(1.0 - tmp, DENOM_TOLERANCE);
+        if (eta_ti_prime >= 1.f) // (No TIR possible)
+            eta_ti = eta_ti_prime;
+        else
+        {
+            // In the possible-TIR case, check for TIR and if not, use the "un-squeezed" Fresnel curve.
+            float mu2_t = 1.f - (1.f - sqr(mui))/sqr(eta_ti);
+            if (mu2_t <= 0.f)
+                return 1.f; // (TIR occurs)
+            mui = sqrt(mu2_t);
+            eta_ti = 1.f/eta_ti;
+        }
+    }
+    return FresnelDielectricReflectance(mui, eta_ti);
 }
 
 // Returns the complex Fresnel reflection coefficient,

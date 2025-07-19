@@ -22,8 +22,7 @@ vec3 specular_btdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
 
     // Compute IOR ratio at interface:
     //  eta_ti_photon = (IOR in hemi. of transmitted photon) / (IOR in hemi. of incident photon)
-    // (NB, ignores coat IOR! To take that into account, need to properly account for refraction through coat)
-    float eta_ie = specular_ior_dispersive(); // n_interior / n_exterior
+    float eta_ie = eta_s(); // n_interior / n_exterior
     float eta_ti_photon = external_transmission ? 1.0/eta_ie : eta_ie;
     if (abs(eta_ti_photon - 1.0) < IOR_EPSILON)
     {
@@ -33,14 +32,9 @@ vec3 specular_btdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
         return tint * pdf_woutputL / max(DENOM_TOLERANCE, abs(woutputL.z));
     }
 
-    // Construct basis such that x, y are aligned with the T, B in the local, rotated frame
-    LocalFrameRotation rotation = getLocalFrameRotation(PI2 * specular_rotation);
-    vec3 winputR  = localToRotated(winputL,  rotation);
-    vec3 woutputR = localToRotated(woutputL, rotation);
-
-    // Compute the micronormal mR in the local (rotated) frame, such that -woutputR is refracted to winputR
-    vec3 beamIncidentR = -woutputR;
-    vec3 beamOutgoingR = winputR;
+    // Compute the micronormal mR in the local frame, such that -woutputL is refracted to winputL
+    vec3 beamIncidentR = -woutputL;
+    vec3 beamOutgoingR = winputL;
     vec3 mR = beamIncidentR - eta_ti_photon*beamOutgoingR;
     if (dot(mR, mR) == 0.0)
         return vec3(0.0);
@@ -55,27 +49,27 @@ vec3 specular_btdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
         dwh_dwo = sqr(eta_ti_photon) * abs(om) / max(sqr(im + eta_ti_photon*om), DENOM_TOLERANCE);
     }
 
-    // Compute the NDF roughnesses in the rotated frame
+    // Compute the NDF roughnesses
     float alpha_x, alpha_y;
     specular_ndf_roughnesses(alpha_x, alpha_y);
     float roughness = specular_roughness;
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float DV = D * ggx_G1(winputR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) / max(DENOM_TOLERANCE, abs(winputR.z));
+    float DV = D * ggx_G1(winputL, alpha_x, alpha_y) * max(0.0, dot(winputL, mR)) / max(DENOM_TOLERANCE, abs(winputL.z));
 
     // Thus compute PDF of woutputL sample
     pdf_woutputL = DV * dwh_dwo;
 
     // Compute shadowing-masking term
-    float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
+    float G2 = ggx_G2(winputL, woutputL, alpha_x, alpha_y);
 
     // Compute Fresnel factor for the dielectric transmission (from that of the corresponding time-reversed reflection)
     float eta_ti_refl = 1.0 / eta_ti_photon;
-    float T = max(0.0, 1.0 - FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl));
+    float T = max(0.0, 1.0 - FresnelDielectricReflectanceModulated(abs(dot(winputL, mR)), eta_ti_refl));
 
     // Thus evaluate BTDF.
-    float f = T * abs(dot(winputR, mR)) * dwh_dwo * G2 * D / max(abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
+    float f = T * abs(dot(winputL, mR)) * dwh_dwo * G2 * D / max(abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
 
     // Apply non-physical tint in zero transmission_depth case
     vec3 tint = (transmission_depth == 0.0) ? transmission_color : vec3(1.0);
@@ -112,8 +106,7 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
 
     // Compute IOR ratio at interface:
     //  eta_ti_photon = (IOR in hemi. of transmitted photon) / (IOR in hemi. of incident photon)
-    // (NB, ignores coat IOR! To take that into account, need to properly account for refraction through coat)
-    float eta_ie = specular_ior_dispersive(); // n_interior / n_exterior
+    float eta_ie = eta_s(); // n_interior / n_exterior
     float eta_ti_photon = external_transmission ? 1.0/eta_ie : eta_ie;
     if (abs(eta_ti_photon - 1.0) < IOR_EPSILON)
     {
@@ -124,41 +117,37 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
         return tint * pdf_woutputL / max(DENOM_TOLERANCE, abs(woutputL.z));
     }
 
-    // Construct basis such that x, y are aligned with the T, B in the rotated frame
-    LocalFrameRotation rotation = getLocalFrameRotation(PI2 * specular_rotation);
-    vec3 winputR = localToRotated(winputL, rotation);
 
-    // Compute the NDF roughnesses in the rotated frame
+    // Compute the NDF roughnesses
     float alpha_x, alpha_y;
     specular_ndf_roughnesses(alpha_x, alpha_y);
 
     // Sample local microfacet normal mR, according to Heitz "Sampling the GGX Distribution of Visible Normals"
     vec3 mR;
-    if (winputR.z > 0.0)
-        mR = ggx_ndf_sample(winputR, alpha_x, alpha_y, rndSeed);
+    if (winputL.z > 0.0)
+        mR = ggx_ndf_sample(winputL, alpha_x, alpha_y, rndSeed);
     else
     {
-        vec3 winputR_reflected = winputR;
-        winputR_reflected.z *= -1.0;
-        mR = ggx_ndf_sample(winputR_reflected, alpha_x, alpha_y, rndSeed);
+        vec3 winputL_reflected = winputL;
+        winputL_reflected.z *= -1.0;
+        mR = ggx_ndf_sample(winputL_reflected, alpha_x, alpha_y, rndSeed);
         mR.z *= -1.0;
     }
 
     // Compute the direction of the ray refracted through the microfacet, woutputL
-    vec3 beamOutgoingR = winputR;
-    vec3 beamIncidentR; // the incident photon direction, to be determined (where woutputR = -beamIncidentR)
+    vec3 beamOutgoingR = winputL;
+    vec3 beamIncidentR; // the incident photon direction, to be determined (where woutputL = -beamIncidentR)
     if (!refraction_given_transmitted_beam(mR, eta_ti_photon, beamOutgoingR, beamIncidentR))
     {
         // The case of a TIR configuration, in which case no transmission occurs
         pdf_woutputL = PDF_EPSILON;
         return vec3(0.0);
     }
-    vec3 woutputR = -safe_normalize(beamIncidentR);
-    woutputL = rotatedToLocal(woutputR, rotation); // refracted ray direction
+    woutputL = -safe_normalize(beamIncidentR); // refracted ray direction
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float DV = D * ggx_G1(winputR, alpha_x, alpha_y) * abs(dot(winputR, mR)) / max(DENOM_TOLERANCE, abs(winputR.z));
+    float DV = D * ggx_G1(winputL, alpha_x, alpha_y) * abs(dot(winputL, mR)) / max(DENOM_TOLERANCE, abs(winputL.z));
 
     // Compute Jacobian of the half-direction mapping
     float im = dot(-beamIncidentR, mR);
@@ -172,14 +161,14 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     pdf_woutputL = DV * dwh_dwo;
 
     // Compute shadowing-masking term
-    float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
+    float G2 = ggx_G2(winputL, woutputL, alpha_x, alpha_y);
 
     // Compute Fresnel factor for the dielectric transmission (from that of the corresponding time-reversed reflection)
     float eta_ti_refl = 1.0 / eta_ti_photon;
-    float T = max(0.0, 1.0 - FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl));
+    float T = max(0.0, 1.0 - FresnelDielectricReflectanceModulated(abs(dot(winputL, mR)), eta_ti_refl));
 
     // Thus evaluate BTDF.
-    float f = T * abs(dot(winputR, mR)) * dwh_dwo * G2 * D / max(abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
+    float f = T * abs(dot(winputL, mR)) * dwh_dwo * G2 * D / max(abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
 
     // Apply non-physical tint in zero transmission_depth case
     vec3 tint = (transmission_depth == 0.0) ? transmission_color : vec3(1.0);
@@ -194,8 +183,11 @@ vec3 specular_btdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
 {
 #ifdef TRANSMISSION_ENABLED
     // Estimate of the BTDF albedo, used to compute the discrete probability of selecting this lobe
-    float eta_ie = specular_ior_dispersive(); // n_interior / n_exterior
-    if (abs(eta_ie - 1.0) < IOR_EPSILON)
+    vec3 beamOutgoingL = winputL;
+    bool external_transmission = (beamOutgoingL.z > 0.0);
+    float eta_ie = eta_s(); // n_interior / n_exterior
+    float eta_ti_photon = external_transmission ? 1.0/eta_ie : eta_ie;
+    if (abs(eta_ti_photon - 1.0) < IOR_EPSILON)
     {
         // degenerate case of index-matched interface, BTDF is a delta-function
         vec3 tint = (transmission_depth == 0.0) ? transmission_color : vec3(1.0);

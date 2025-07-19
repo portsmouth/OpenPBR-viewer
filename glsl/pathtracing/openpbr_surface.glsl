@@ -98,7 +98,7 @@ void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
         {
             float Kr = 1.0 - (1.0 - average_dielectric_fresnel(coat_ior))/sqr(coat_ior);
             float Ks = FresnelDielectricReflectance(abs(winputL.z), coat_ior);
-            float Fr = clamp(specular_weight * fresnel_refl_normal_incidence(), 0.0, 1.0);
+            float Fr = FresnelDielectricReflectanceModulated(0.0, eta_s());
             float rd = mix(1.0, specular_roughness, Fr); // estimate of roughness of dielectric base
             float rm = specular_roughness;               // estimate of roughness of metallic base
             float rb = mix(rd, rm, M);  // thus estimated roughness of entire base
