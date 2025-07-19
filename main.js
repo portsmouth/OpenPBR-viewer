@@ -105,9 +105,9 @@ var params =
 
     scene_name:                         'standard-shader-ball',
     smooth_normals:                     true,
-    bounces:                            3,
+    bounces:                            6,
     max_samples:                        512,
-    max_volume_steps:                   8,
+    max_volume_steps:                   64,
     wireframe:                          false,
     neutral_color:                      [0.99, 0.99, 0.99],
 
@@ -136,7 +136,6 @@ var params =
     specular_color:                      [1.0, 1.0, 1.0],
     specular_roughness:                  0.1,
     specular_anisotropy:                 0.0,
-    specular_rotation:                   0.0,
     specular_ior:                        1.5,
 
     transmission_weight:                 0.0,
@@ -157,7 +156,6 @@ var params =
     coat_color:                          [1.0, 1.0, 1.0],
     coat_roughness:                      0.0,
     coat_anisotropy:                     0.0,
-    coat_rotation:                       0.0,
     coat_ior:                            1.6,
     coat_darkening:                      1.0,
 
@@ -183,12 +181,11 @@ var materialDefines = {
     BOUNCES:              params.bounces,
     MAX_VOLUME_STEPS:     params.max_volume_steps,
 
-    FUZZ_ENABLED:         false,
-    COAT_ENABLED:         false,
-    TRANSMISSION_ENABLED: false,
-    VOLUME_ENABLED:       false,
-    DISPERSION_ENABLED:   false,
-    THIN_FILM_ENABLED:    false
+    FUZZ_ENABLED:         true,
+    COAT_ENABLED:         true,
+    TRANSMISSION_ENABLED: true,
+    VOLUME_ENABLED:       true,
+    THIN_FILM_ENABLED:    true
 };
 
 var mesh_loader;
@@ -355,7 +352,6 @@ function create_materials()
                         specular_color:                      { value: array_to_vector3(params.specular_color) },
                         specular_roughness:                  { value: params.specular_roughness },
                         specular_anisotropy:                 { value: params.specular_anisotropy },
-                        specular_rotation:                   { value: params.specular_rotation },
                         specular_ior:                        { value: params.specular_ior  },
 
                         transmission_weight:                 { value: params.transmission_weight, },
@@ -376,7 +372,6 @@ function create_materials()
                         coat_color:                          { value: array_to_vector3(params.coat_color) },
                         coat_roughness:                      { value: params.coat_roughness },
                         coat_anisotropy:                     { value: params.coat_anisotropy },
-                        coat_rotation:                       { value: params.coat_rotation },
                         coat_ior:                            { value: params.coat_ior  },
                         coat_darkening:                      { value: params.coat_darkening  },
 
@@ -392,7 +387,14 @@ function create_materials()
                         thin_film_ior:                       { value: params.thin_film_ior },
 
                         geometry_opacity:                    { value: params.geometry_opacity },
-                        geometry_thin_walled:                { value: params.geometry_thin_walled }
+                        geometry_thin_walled:                { value: params.geometry_thin_walled },
+
+                        fuzz_enabled:                        { value:  fuzz_enabled() },
+                        coat_enabled:                        { value:  coat_enabled() },
+                        transmission_enabled:                { value:  transmission_enabled() },
+                        volume_enabled:                      { value:  volume_enabled() },
+                        thin_film_enabled:                   { value:  thin_film_enabled() }
+
                     }
                 ] ),
 
@@ -520,7 +522,6 @@ function create_materials()
                 specular_color:                      { value: array_to_vector3(params.specular_color) },
                 specular_roughness:                  { value: params.specular_roughness },
                 specular_anisotropy:                 { value: params.specular_anisotropy },
-                specular_rotation:                   { value: params.specular_rotation },
                 specular_ior:                        { value: params.specular_ior  },
 
                 transmission_weight:                 { value: params.transmission_weight, },
@@ -541,7 +542,6 @@ function create_materials()
                 coat_color:                          { value: array_to_vector3(params.coat_color) },
                 coat_roughness:                      { value: params.coat_roughness },
                 coat_anisotropy:                     { value: params.coat_anisotropy },
-                coat_rotation:                       { value: params.coat_rotation },
                 coat_ior:                            { value: params.coat_ior  },
                 coat_darkening:                      { value: params.coat_darkening  },
 
@@ -557,7 +557,13 @@ function create_materials()
                 thin_film_ior:                       { value: params.thin_film_ior },
 
                 geometry_opacity:                    { value: params.geometry_opacity },
-                geometry_thin_walled:                { value: params.geometry_thin_walled }
+                geometry_thin_walled:                { value: params.geometry_thin_walled },
+
+                fuzz_enabled:                        { value:  fuzz_enabled() },
+                coat_enabled:                        { value:  coat_enabled() },
+                transmission_enabled:                { value:  transmission_enabled() },
+                volume_enabled:                      { value:  volume_enabled() },
+                thin_film_enabled:                   { value:  thin_film_enabled() }
 
             },
         ] ),
@@ -914,7 +920,6 @@ function setup_gui()
     specular_folder.add(params,      'specular_roughness', 0.0, 1.0).onChange(                        v => { resetSamples(); });
     specular_folder.add(params,      'specular_ior', 1.0, 5.0).onChange(                              v => { resetSamples(); });
     specular_folder.add(params,      'specular_anisotropy', 0.0, 1.0).onChange(                       v => { resetSamples(); });
-    specular_folder.add(params,      'specular_rotation', 0.0, 1.0).onChange(                         v => { resetSamples(); });
 
     // Transmission folder
     const transmission_folder = material_folder.addFolder('Transmission');
@@ -943,7 +948,6 @@ function setup_gui()
     coat_folder.add(params,          'coat_roughness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
     coat_folder.add(params,          'coat_ior', 1.0, 3.0).onChange(                                  v => { resetSamples(); });
     coat_folder.add(params,          'coat_anisotropy', 0.0, 1.0).onChange(                           v => { resetSamples(); });
-    coat_folder.add(params,          'coat_rotation', 0.0, 1.0).onChange(                             v => { resetSamples(); });
     coat_folder.add(params,          'coat_darkening', 0.0, 1.0).onChange(                            v => { resetSamples(); });
     coat_folder.close();
 
@@ -1196,7 +1200,6 @@ function sync_shader_uniforms(uniforms)
     uniforms.specular_color.value.copy(get_vector3(         params.specular_color));
     uniforms.specular_roughness.value                     = params.specular_roughness;
     uniforms.specular_anisotropy.value                    = params.specular_anisotropy;
-    uniforms.specular_rotation.value                      = params.specular_rotation;
     uniforms.specular_ior.value                           = params.specular_ior;
 
     uniforms.transmission_weight.value                    = params.transmission_weight;
@@ -1217,7 +1220,6 @@ function sync_shader_uniforms(uniforms)
     uniforms.coat_color.value.copy(get_vector3(             params.coat_color));
     uniforms.coat_roughness.value                         = params.coat_roughness;
     uniforms.coat_anisotropy.value                        = params.coat_anisotropy;
-    uniforms.coat_rotation.value                          = params.coat_rotation;
     uniforms.coat_ior.value                               = params.coat_ior;
     uniforms.coat_darkening .value                        = params.coat_darkening;
 
@@ -1244,6 +1246,13 @@ function sync_shader_uniforms(uniforms)
     uniforms.sunColor.value.copy(get_vector3(               params.sunColor));
     updateSunDir();
     uniforms.sunDir.value.copy(get_vector3(                 params.sunDir));
+
+    uniforms.fuzz_enabled.value            = fuzz_enabled();
+    uniforms.coat_enabled.value            = coat_enabled();
+    uniforms.transmission_enabled.value    = transmission_enabled();
+    uniforms.volume_enabled.value          = volume_enabled();
+    uniforms.thin_film_enabled.value       = thin_film_enabled();
+
 }
 
 function render()

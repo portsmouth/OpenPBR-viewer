@@ -41,27 +41,22 @@ vec3 coat_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
     float alpha_x, alpha_y;
     coat_ndf_roughnesses(alpha_x, alpha_y);
 
-    // Construct basis such that x, y are aligned with the T, B in the local, rotated frame
-    LocalFrameRotation rotation = getLocalFrameRotation(PI2*coat_rotation);
-    vec3 winputR  = localToRotated(winputL,  rotation);
-    vec3 woutputR = localToRotated(woutputL, rotation);
-
-    // Compute the micronormal mR in the local (rotated) frame, from the reflection half-vector
-    vec3 mR = normalize(woutputR + winputR);
+    // Compute the micronormal mR in the local frame, from the reflection half-vector
+    vec3 mR = normalize(woutputL + winputL);
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float DV = D * ggx_G1(winputR, alpha_x, alpha_y) * max(0.0, dot(winputR, mR)) / winputR.z;
+    float DV = D * ggx_G1(winputL, alpha_x, alpha_y) * max(0.0, dot(winputL, mR)) / winputL.z;
 
     // Compute Fresnel factor for the dielectric reflection
-    float F = FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl);
+    float F = FresnelDielectricReflectance(abs(dot(winputL, mR)), eta_ti_refl);
 
     // Thus compute PDF of woutputL sample
-    float dwh_dwo = 1.0 / max(abs(4.0*dot(winputR, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
+    float dwh_dwo = 1.0 / max(abs(4.0*dot(winputL, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
     pdf_woutputL = DV * dwh_dwo;
 
     // Thus evaluate BRDF
-    return vec3(F) * D * ggx_G2(winputR, woutputR, alpha_x, alpha_y) / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
+    return vec3(F) * D * ggx_G2(winputL, woutputL, alpha_x, alpha_y) / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
 #else
     return vec3(0.0);
 #endif // COAT_ENABLED
@@ -89,36 +84,29 @@ vec3 coat_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rn
     float alpha_x, alpha_y;
     coat_ndf_roughnesses(alpha_x, alpha_y);
 
-    // Construct basis such that x, y are aligned with the T, B in the rotated frame
-    LocalFrameRotation rotation = getLocalFrameRotation(PI2*coat_rotation);
-    vec3 winputR = localToRotated(winputL, rotation);
-
     // Sample local microfacet normal mR, according to Heitz "Sampling the GGX Distribution of Visible Normals"
-    if (winputR.z <= 0.0)
+    if (winputL.z <= 0.0)
         return vec3(0.0); // coat internal reflection ignored (not strictly physical)
-    vec3 mR = ggx_ndf_sample(winputR, alpha_x, alpha_y, rndSeed);
+    vec3 mR = ggx_ndf_sample(winputL, alpha_x, alpha_y, rndSeed);
 
-    // Compute woutputR (and thus woutputL) by reflecting winputR about mR
-    vec3 woutputR = -winputR + 2.0*dot(winputR, mR)*mR;
-    if (winputR.z * woutputR.z < FLT_EPSILON)
+    // Compute woutputL by reflecting winputL about mR
+    woutputL = -winputL + 2.0*dot(winputL, mR)*mR;
+    if (winputL.z * woutputL.z < FLT_EPSILON)
         return vec3(0.0); // no reflection if ray direction in wrong hemisphere (in absence of a multi-scatter approx. currently)
-
-    // Rotate woutputR back to local space
-    woutputL = rotatedToLocal(woutputR, rotation);
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float DV = D * ggx_G1(winputR, alpha_x, alpha_y) * abs(dot(winputR, mR)) / max(DENOM_TOLERANCE, abs(winputR.z));
+    float DV = D * ggx_G1(winputL, alpha_x, alpha_y) * abs(dot(winputL, mR)) / max(DENOM_TOLERANCE, abs(winputL.z));
 
     // Compute shadowing-masking term
-    float G2 = ggx_G2(winputR, woutputR, alpha_x, alpha_y);
+    float G2 = ggx_G2(winputL, woutputL, alpha_x, alpha_y);
 
     // Thus compute PDF of woutputL sample
-    float dwh_dwo = 1.0 / max(abs(4.0*dot(winputR, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
+    float dwh_dwo = 1.0 / max(abs(4.0*dot(winputL, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
     pdf_woutputL = DV * dwh_dwo;
 
     // Compute Fresnel factor for the dielectric reflection
-    float F = FresnelDielectricReflectance(abs(dot(winputR, mR)), eta_ti_refl);
+    float F = FresnelDielectricReflectance(abs(dot(winputL, mR)), eta_ti_refl);
 
     // Thus evaluate BRDF
     vec3 f = vec3(F) * D * G2 / max(4.0 * abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
