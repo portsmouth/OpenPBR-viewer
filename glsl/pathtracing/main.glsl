@@ -359,6 +359,45 @@ bool cutout(in int material, inout uint rndSeed)
 
 // mui     = magnitude of the cosine of the incident ray angle to the micronormal
 // eta_ti  = ratio et/ei of the transmitted IOR (et) and incident IOR (ei)
+float FresnelDielectricReflectance(in float mui, in float eta_ti)
+{
+    float c = mui;
+    float mut2 = sqr(eta_ti) + sqr(c) - 1.0;
+    if (mut2 <= 0.0) return 1.0;
+    float g = sqrt(mut2);
+    return 0.5 * sqr((g-c)/(g+c)) * (1.0 + sqr(((g+c)*c-1.0)/((g-c)*c+1.0)));
+}
+
+//  specular_weight (>= 0) modulates the Fresnel F0 linearly
+float FresnelDielectricReflectanceModulated(in float mui, in float eta_ti)
+{
+    float etam12 = sqr(eta_ti - 1.0);
+    if (etam12 < FLT_EPSILON) return 0.0;
+    if (specular_weight != 1.f)
+    {
+        // Compute modified IOR ratio
+        float F0 = etam12 / sqr(1.0+eta_ti);
+        float tmp = sign(etam1) * clamp(specular_weight * F0, FLT_EPSILON, 1.0);
+        float eta_ti_prime = (1.0 + tmp) / max(1.0 - tmp, DENOM_TOLERANCE);
+        if (eta_ti_prime >= 1.f) // (No TIR possible)
+            eta_ti = eta_ti_prime;
+        else
+        {
+            // In the possible-TIR case, check for TIR and if not, use the "un-squeezed" Fresnel curve.
+            float mu2_t = 1.f - (1.f - sqr(mui))/sqr(eta_ti);
+            if (mu2_t <= FLT_EPSILON)
+                return 1.f; // (TIR occurs)
+            mui = sqrt(mu2_t);
+            eta_ti = 1.f/eta_ti;
+        }
+    }
+    return FresnelDielectricReflectance(mui, eta_ti);
+}
+
+#ifdef THIN_FILM_ENABLED
+
+// mui     = magnitude of the cosine of the incident ray angle to the micronormal
+// eta_ti  = ratio et/ei of the transmitted IOR (et) and incident IOR (ei)
 // Outputs vec2(rs, rp), the real amplitude (and sign) of the S, P polarized reflection (where squared amplitudes give reflectance).
 vec2 FresnelDielectricReflectionPolarizations(float mui, float eta_ti)
 {
@@ -381,40 +420,6 @@ vec2 FresnelDielectricTransmissionPolarizations(float mui, float eta_ti)
     float ts = 2.0 * mui / (mui + eta_ti*mut);
     float tp = 2.0 * mui / (mut + eta_ti*mui);
     return vec2(ts, tp);
-}
-
-// mui     = magnitude of the cosine of the incident ray angle to the micronormal
-// eta_ti  = ratio et/ei of the transmitted IOR (et) and incident IOR (ei)
-float FresnelDielectricReflectance(in float mui, in float eta_ti)
-{
-    // assuming unpolarized incident light
-    vec2 r = FresnelDielectricReflectionPolarizations(mui, eta_ti);
-    return 0.5*dot(r, r);
-}
-
-//  specular_weight (>= 0) modulates the Fresnel F0 linearly
-float FresnelDielectricReflectanceModulated(in float mui, in float eta_ti)
-{
-    if (specular_weight != 1.f)
-    {
-        // Compute modified IOR ratio
-        float F0 = sqr((eta_ti - 1.0)/(eta_ti + 1.0));
-        float xi_s = clamp(specular_weight, 0.0, 1.0/max(F0, DENOM_TOLERANCE));
-        float tmp = sign(eta_ti - 1.0) * min(sqrt(xi_s * F0), 1.0);
-        float eta_ti_prime = (1.0 + tmp) / max(1.0 - tmp, DENOM_TOLERANCE);
-        if (eta_ti_prime >= 1.f) // (No TIR possible)
-            eta_ti = eta_ti_prime;
-        else
-        {
-            // In the possible-TIR case, check for TIR and if not, use the "un-squeezed" Fresnel curve.
-            float mu2_t = 1.f - (1.f - sqr(mui))/sqr(eta_ti);
-            if (mu2_t <= 0.f)
-                return 1.f; // (TIR occurs)
-            mui = sqrt(mu2_t);
-            eta_ti = 1.f/eta_ti;
-        }
-    }
-    return FresnelDielectricReflectance(mui, eta_ti);
 }
 
 // Returns the complex Fresnel reflection coefficient,
@@ -453,6 +458,8 @@ void FresnelConductorReflectionPolarizations(float mu_d, float eta_d, float eta_
     float phiab_para          = atan(tanphiab_para_numer, tanphiab_para_denom);
     rab_para                  = rab_para_mag * vec2(cos(phiab_para), sin(phiab_para));
 }
+
+#endif // THIN_FILM_ENABLED
 
 vec3 FresnelSchlick(vec3 F0, float mu)
 {
