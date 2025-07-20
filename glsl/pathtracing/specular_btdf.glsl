@@ -66,7 +66,7 @@ vec3 specular_btdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3
 
     // Compute Fresnel factor for the dielectric transmission (from that of the corresponding time-reversed reflection)
     float eta_ti_refl = 1.0 / eta_ti_photon;
-    float T = max(0.0, 1.0 - FresnelDielectricReflectanceModulated(abs(dot(winputL, mR)), eta_ti_refl));
+    float T = clamp(1.0 - FresnelDielectricReflectanceModulated(abs(dot(winputL, mR)), eta_ti_refl), 0.0, 1.0);
 
     // Thus evaluate BTDF.
     float f = T * abs(dot(winputL, mR)) * dwh_dwo * G2 * D / max(abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
@@ -165,7 +165,7 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
 
     // Compute Fresnel factor for the dielectric transmission (from that of the corresponding time-reversed reflection)
     float eta_ti_refl = 1.0 / eta_ti_photon;
-    float T = max(0.0, 1.0 - FresnelDielectricReflectanceModulated(abs(dot(winputL, mR)), eta_ti_refl));
+    float T = clamp(1.0 - FresnelDielectricReflectanceModulated(abs(dot(winputL, mR)), eta_ti_refl), 0.0, 1.0);
 
     // Thus evaluate BTDF.
     float f = T * abs(dot(winputL, mR)) * dwh_dwo * G2 * D / max(abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
