@@ -371,12 +371,13 @@ float FresnelDielectricReflectance(in float mui, in float eta_ti)
 //  specular_weight (>= 0) modulates the Fresnel F0 linearly
 float FresnelDielectricReflectanceModulated(in float mui, in float eta_ti)
 {
-    float etam12 = sqr(eta_ti - 1.0);
-    if (etam12 < FLT_EPSILON) return 0.0;
+    float etam1 = 1.0 - eta_ti;
+    float etam1sqr = sqr(etam1);
+    if (etam1sqr < FLT_EPSILON) return 0.0;
     if (specular_weight != 1.f)
     {
         // Compute modified IOR ratio
-        float F0 = etam12 / sqr(1.0+eta_ti);
+        float F0 = etam1sqr / sqr(1.0+eta_ti);
         float tmp = sign(etam1) * clamp(specular_weight * F0, FLT_EPSILON, 1.0);
         float eta_ti_prime = (1.0 + tmp) / max(1.0 - tmp, DENOM_TOLERANCE);
         if (eta_ti_prime >= 1.f) // (No TIR possible)
