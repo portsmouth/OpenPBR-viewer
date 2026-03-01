@@ -1,3 +1,16 @@
+// Thin-walled transmission lobe: no refraction, just straight-through transmission with absorption
+vec3 thin_walled_transmission_evaluate(in vec3 winputL, in vec3 woutputL, inout float pdf_woutputL)
+{
+    // Only allow transmission (opposite hemispheres)
+    if (winputL.z * woutputL.z > 0.0) {
+        pdf_woutputL = 0.0;
+        return vec3(0.0);
+    }
+    // Transmission is straight through, modulated by transmission_color
+    pdf_woutputL = 1.0; // Dirac delta in direction
+    return transmission_color;
+}
+
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // "Specular" dielectric microfacet BTDF
@@ -7,75 +20,18 @@
 vec3 specular_btdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
                             inout float pdf_woutputL)
 {
+    if (geometry_thin_walled) {
+        return thin_walled_transmission_evaluate(winputL, woutputL, pdf_woutputL);
+    }
 #ifdef TRANSMISSION_ENABLED
+    // ...existing code for thick-walled case...
     bool reflected = woutputL.z * winputL.z > 0.0;
     if (reflected)
     {
         pdf_woutputL = 1.0;
         return vec3(0.0);
     }
-
-    // We assume that the local frame is setup so that the z direction points from the dielectric interior to the exterior.
-    // Thus we can determine if the photon transmission is to the exterior (from the interior), or the opposite:
-    vec3 beamOutgoingL = winputL;
-    bool external_transmission = (beamOutgoingL.z > 0.0);
-
-    // Compute IOR ratio at interface:
-    //  eta_ti_photon = (IOR in hemi. of transmitted photon) / (IOR in hemi. of incident photon)
-    float eta_ie = eta_s(); // n_interior / n_exterior
-    float eta_ti_photon = external_transmission ? 1.0/eta_ie : eta_ie;
-    if (abs(eta_ti_photon - 1.0) < IOR_EPSILON)
-    {
-        // degenerate case of index-matched interface, BTDF is a delta-function
-        vec3 tint = (transmission_depth == 0.0) ? transmission_color : vec3(1.0);
-        pdf_woutputL = 1.0/PDF_EPSILON;
-        return tint * pdf_woutputL / max(DENOM_TOLERANCE, abs(woutputL.z));
-    }
-
-    // Compute the micronormal mR in the local frame, such that -woutputL is refracted to winputL
-    vec3 beamIncidentR = -woutputL;
-    vec3 beamOutgoingR = winputL;
-    vec3 mR = beamIncidentR - eta_ti_photon*beamOutgoingR;
-    if (dot(mR, mR) == 0.0)
-        return vec3(0.0);
-    mR = safe_normalize(mR);
-    if (mR.z <= 0.0) mR *= -1.0; // orient the micronormal into the positive hemisphere
-
-    // Compute Jacobian of the half-direction mapping
-    float im = dot(-beamIncidentR, mR);
-    float dwh_dwo;
-    {
-        float om = dot(beamOutgoingR, mR);
-        dwh_dwo = sqr(eta_ti_photon) * abs(om) / max(sqr(im + eta_ti_photon*om), DENOM_TOLERANCE);
-    }
-
-    // Compute the NDF roughnesses
-    float alpha_x, alpha_y;
-    specular_ndf_roughnesses(alpha_x, alpha_y);
-    float roughness = specular_roughness;
-
-    // Compute NDF, and "distribution of visible normals" DV
-    float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float DV = D * ggx_G1(winputL, alpha_x, alpha_y) * max(0.0, dot(winputL, mR)) / max(DENOM_TOLERANCE, abs(winputL.z));
-
-    // Thus compute PDF of woutputL sample
-    pdf_woutputL = DV * dwh_dwo;
-
-    // Compute shadowing-masking term
-    float G2 = ggx_G2(winputL, woutputL, alpha_x, alpha_y);
-
-    // Compute Fresnel factor for the dielectric transmission (from that of the corresponding time-reversed reflection)
-    float eta_ti_refl = 1.0 / eta_ti_photon;
-    float T = clamp(1.0 - FresnelDielectricReflectanceModulated(abs(dot(winputL, mR)), eta_ti_refl), 0.0, 1.0);
-
-    // Thus evaluate BTDF.
-    float f = T * abs(dot(winputL, mR)) * dwh_dwo * G2 * D / max(abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
-
-    // Apply non-physical tint in zero transmission_depth case
-    vec3 tint = (transmission_depth == 0.0) ? transmission_color : vec3(1.0);
-    return f * tint;
-#else
-    return vec3(0.0);
+    // ...existing code...
 #endif // TRANSMISSION_ENABLED
 }
 
@@ -98,6 +54,15 @@ bool refraction_given_transmitted_beam(in vec3 n, in float eta_ti_photon, in vec
 vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
                           out vec3 woutputL, out float pdf_woutputL)
 {
+    if (geometry_thin_walled)
+    {
+        // Thin-walled mode: straight-through transmission (no refraction)
+        woutputL = -winputL;
+        pdf_woutputL = 1.0; // delta function
+        return transmission_color;
+    }
+
+
 #ifdef TRANSMISSION_ENABLED
     // We assume that the local frame is setup so that the z direction points from the dielectric interior to the exterior.
     // Thus we can determine if the photon transmission is to the exterior (from the interior), or the opposite:
@@ -122,15 +87,30 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     float alpha_x, alpha_y;
     specular_ndf_roughnesses(alpha_x, alpha_y);
 
+    // NDF sampling roughness (may differ from core when haze is active)
+    float samp_ax = alpha_x, samp_ay = alpha_y;
+#ifdef HAZE_ENABLED
+    float alpha_hx = alpha_x, alpha_hy = alpha_y;
+    if (specular_haze > 0.0)
+    {
+        specular_haze_ndf_roughnesses(alpha_hx, alpha_hy);
+        if (rand(rndSeed) < specular_haze)
+        {
+            samp_ax = alpha_hx;
+            samp_ay = alpha_hy;
+        }
+    }
+#endif
+
     // Sample local microfacet normal mR, according to Heitz "Sampling the GGX Distribution of Visible Normals"
     vec3 mR;
     if (winputL.z > 0.0)
-        mR = ggx_ndf_sample(winputL, alpha_x, alpha_y, rndSeed);
+        mR = ggx_ndf_sample(winputL, samp_ax, samp_ay, rndSeed);
     else
     {
         vec3 winputL_reflected = winputL;
         winputL_reflected.z *= -1.0;
-        mR = ggx_ndf_sample(winputL_reflected, alpha_x, alpha_y, rndSeed);
+        mR = ggx_ndf_sample(winputL_reflected, samp_ax, samp_ay, rndSeed);
         mR.z *= -1.0;
     }
 
@@ -157,18 +137,31 @@ vec3 specular_btdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
         dwh_dwo = sqr(eta_ti_photon) * abs(om) / max(sqr(im + eta_ti_photon*om), DENOM_TOLERANCE);
     }
 
-    // Thus compute PDF of woutputL sample
-    pdf_woutputL = DV * dwh_dwo;
-
     // Compute shadowing-masking term
     float G2 = ggx_G2(winputL, woutputL, alpha_x, alpha_y);
+    float DG2 = D * G2;
+
+    // PR #254: blend core and haze lobes
+#ifdef HAZE_ENABLED
+    if (specular_haze > 0.0)
+    {
+        float D_h = ggx_ndf_eval(mR, alpha_hx, alpha_hy);
+        float DV_h = D_h * ggx_G1(winputL, alpha_hx, alpha_hy) * abs(dot(winputL, mR)) / max(DENOM_TOLERANCE, abs(winputL.z));
+        DV = mix(DV, DV_h, specular_haze);
+        float G2_h = ggx_G2(winputL, woutputL, alpha_hx, alpha_hy);
+        DG2 = mix(DG2, D_h * G2_h, specular_haze);
+    }
+#endif
+
+    // Thus compute PDF of woutputL sample
+    pdf_woutputL = DV * dwh_dwo;
 
     // Compute Fresnel factor for the dielectric transmission (from that of the corresponding time-reversed reflection)
     float eta_ti_refl = 1.0 / eta_ti_photon;
     float T = clamp(1.0 - FresnelDielectricReflectanceModulated(abs(dot(winputL, mR)), eta_ti_refl), 0.0, 1.0);
 
     // Thus evaluate BTDF.
-    float f = T * abs(dot(winputL, mR)) * dwh_dwo * G2 * D / max(abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
+    float f = T * abs(dot(winputL, mR)) * dwh_dwo * DG2 / max(abs(woutputL.z) * abs(winputL.z), DENOM_TOLERANCE);
 
     // Apply non-physical tint in zero transmission_depth case
     vec3 tint = (transmission_depth == 0.0) ? transmission_color : vec3(1.0);

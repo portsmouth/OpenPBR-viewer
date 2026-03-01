@@ -46,7 +46,7 @@ vec3 coat_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wou
 
     // Compute NDF, and "distribution of visible normals" DV
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
-    float DV = D * ggx_G1(winputL, alpha_x, alpha_y) * max(0.0, dot(winputL, mR)) / winputL.z;
+    float DV = D * ggx_G1(winputL, alpha_x, alpha_y) * abs(dot(winputL, mR)) / max(DENOM_TOLERANCE, abs(winputL.z));
 
     // Compute Fresnel factor for the dielectric reflection
     float F = FresnelDielectricReflectance(abs(dot(winputL, mR)), eta_ti_refl);

@@ -13,11 +13,11 @@ bool bvhIntersectFirstHitWithinDistance(
 	// stack needs to be twice as long as the deepest tree we expect because
 	// we push both the left and right child onto the stack every traversal
 	int ptr = 0;
-	uint stack[ 60 ];
+	uint stack[ 32 ];
 	stack[ 0 ] = 0u;
 	float triangleDistance = 1e20;
 	bool found = false;
-	while (ptr > - 1 && ptr < 60)
+	while (ptr > - 1 && ptr < 32)
     {
 		uint currNodeIndex = stack[ ptr ];
 		ptr --;
@@ -81,11 +81,30 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir, in float maxDistance,
     bool hit_props = bvhIntersectFirstHitWithinDistance( bvh_props, rayOrigin, rayDir, min(dist_surface, maxDistance),
                                                          faceIndices_props, faceNormal_props, barycoord_props, side_props, dist_props );
 
-    bool hit = hit_surface || hit_props;
+    // Find closest BVH hit distance
+    float dist_closest = HUGE_DIST;
+    if (hit_surface) dist_closest = min(dist_closest, dist_surface);
+    if (hit_props)   dist_closest = min(dist_closest, dist_props);
+
+    // Analytical ground plane intersection at y = 0.01 (matching rasterizer)
+    const float GROUND_Y = 0.01;
+    float dist_ground = HUGE_DIST;
+    bool hit_ground = false;
+    if (abs(rayDir.y) > DENOM_TOLERANCE)
+    {
+        float t = (GROUND_Y - rayOrigin.y) / rayDir.y;
+        if (t > 0.0 && t < min(dist_closest, maxDistance))
+        {
+            dist_ground = t;
+            hit_ground = true;
+        }
+    }
+
+    bool hit = hit_surface || hit_props || hit_ground;
     if (!hit)
         return false;
 
-    if (hit_surface && (!hit_props || (dist_surface <= dist_props)))
+    if (hit_surface && (!hit_props || (dist_surface <= dist_props)) && (!hit_ground || (dist_surface <= dist_ground)))
     {
         P = rayOrigin + dist_surface*rayDir;
         material = MATERIAL_OPENPBR;
@@ -106,7 +125,7 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir, in float maxDistance,
             Ts = normalToTangent(Ns);
     }
 
-    else if (hit_props)
+    else if (hit_props && (!hit_ground || (dist_props <= dist_ground)))
     {
         P = rayOrigin + dist_props*rayDir;
         material = MATERIAL_PROPS;
@@ -125,6 +144,16 @@ bool trace(in vec3 rayOrigin, in vec3 rayDir, in float maxDistance,
             Ts = textureSampleBarycoord(tangentAttribute_props, barycoord_props, faceIndices_props.xyz).xyz;
         else
             Ts = normalToTangent(Ns);
+    }
+
+    else if (hit_ground)
+    {
+        P = rayOrigin + dist_ground*rayDir;
+        material = MATERIAL_GROUND;
+        baryCoord = vec3(0.0);
+        Ng = vec3(0.0, 1.0, 0.0);
+        Ns = Ng;
+        Ts = vec3(1.0, 0.0, 0.0);
     }
     return true;
 }
@@ -162,6 +191,33 @@ vec3 neutral_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint
     return neutral_color / PI;
 }
 
+////////////////////////////////////////////////
+// Ground plane textured Lambertian BRDF
+////////////////////////////////////////////////
+
+vec3 ground_albedo(in vec3 pW)
+{
+    // UV mapping: match rasterizer's repeat=2, offset=0.5 on 200x200 plane
+    vec2 uv = vec2(pW.x, -pW.z) / 200.0 * 2.0 + 0.5;
+    return texture(ground_texture, uv).rgb;
+}
+
+vec3 ground_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
+                           inout float pdf_woutputL)
+{
+    if (winputL.z < DENOM_TOLERANCE || woutputL.z < DENOM_TOLERANCE) return vec3(0.0);
+    pdf_woutputL = pdfHemisphereCosineWeighted(woutputL);
+    return ground_albedo(pW) / PI;
+}
+
+vec3 ground_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
+                         out vec3 woutputL, out float pdf_woutputL)
+{
+    if (winputL.z < DENOM_TOLERANCE) return vec3(0.0);
+    woutputL = sampleHemisphereCosineWeighted(rndSeed, pdf_woutputL);
+    return ground_albedo(pW) / PI;
+}
+
 //////////////////////////////////////
 // BSDF dispatch
 //////////////////////////////////////
@@ -169,16 +225,18 @@ vec3 neutral_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint
 vec3 evaluateBsdf(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL, in int material,
                   inout float pdf_woutputL)
 {
-    if (material == MATERIAL_OPENPBR) return openpbr_bsdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
-    else                              return neutral_brdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
+    if      (material == MATERIAL_OPENPBR) return openpbr_bsdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
+    else if (material == MATERIAL_GROUND)  return ground_brdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
+    else                                   return neutral_brdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
 }
 
 
 vec3 sampleBsdf(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed, in int material,
                 out vec3 woutputL, out float pdf_woutputL, out Volume internal_medium)
 {
-    if (material == MATERIAL_OPENPBR) return openpbr_bsdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_woutputL, internal_medium);
-    else                              return neutral_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_woutputL);
+    if      (material == MATERIAL_OPENPBR) return openpbr_bsdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_woutputL, internal_medium);
+    else if (material == MATERIAL_GROUND)  return ground_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_woutputL);
+    else                                   return neutral_brdf_sample(pW, basis, winputL, rndSeed, woutputL, pdf_woutputL);
 }
 
 
@@ -351,7 +409,7 @@ bool trace_volumetric(in vec3 pW, in vec3 dW, inout uint rndSeed,
     vec3 dWalk = dW;
     vec3 mfp = 1.0 / max(vec3(DENOM_TOLERANCE), volume.extinction);
     volume_throughput = vec3(1.0);
-    for (int n=0; n < MAX_VOLUME_STEPS; ++n)
+    for (int n=0; n < max_volume_steps; ++n)
     {
         vec3 channel_probs;
         int channel = sample_channel(volume.albedo, volume_throughput, rndSeed, channel_probs);
@@ -441,14 +499,18 @@ void main()
 #endif
     bool in_dielectric = false;
 
-#ifdef TRANSMISSION_ENABLED
-    // Stochastically choose wavelength for potential dispersion effect
-    // (here just a crude uniform sample of the visible range)
-    bool dispersive = false;
+#if defined(TRANSMISSION_ENABLED) || defined(THIN_FILM_ENABLED)
+    // Stochastically choose hero wavelength for spectral rendering
+    // (used by both dispersion and thin-film iridescence)
     wavelength_nm = 360.0 + (700.0 - 360.0)*rand(rndSeed);
-#endif // TRANSMISSION_ENABLED
+#endif
 
-    for (int vertex=0; vertex <= BOUNCES; vertex++)
+#ifdef THIN_FILM_ENABLED
+    // Thin-film requires spectral rendering: apply CIE spectral weight at path start
+    throughput *= xyzToRgb(xyzFit_1931(wavelength_nm)) * SPECTRAL_NORM;
+#endif
+
+    for (int vertex=0; vertex <= bounces; vertex++)
     {
         // Generate next surface hit, given current vertex pW and current propagation direction dW
         // (where vertex 0 corresponds to the camera position)
@@ -513,7 +575,7 @@ void main()
         }
 
         // Terminate at max bounce count (biased)
-        if (vertex == BOUNCES)
+        if (vertex == bounces)
             break;
 
         // Update to the next surface vertex.
@@ -559,8 +621,12 @@ void main()
         vec3 winputL = worldToLocal(winputW, basis);
 
         // Prepare OpenPBR if that material is used at the current vertex
+        bool thin_walled = false;
         if (material == MATERIAL_OPENPBR)
+        {
             openpbr_prepare(pW, basis, winputL, rndSeed);
+            thin_walled = openpbr_is_thinwalled();
+        }
 
         // Sample BSDF for the continuation ray direction
         Volume internal_medium;
@@ -580,20 +646,23 @@ void main()
         // Prepare for tracing the direct lighting and continuation rays
         pW += NgW * sign(dot(dW, NgW)) * RAY_OFFSET; // perturb vertex into geometric half-space of scattered ray
 
-        // Check if a transmission has occurred, and update the current_medium and dispersion state accordingly.
-        bool transmitted = (material == MATERIAL_OPENPBR) && (dot(winputW, NgW) * dot(dW, NgW) < 0.0);
+        // Check if a transmission between dielectric media has occurred,
+        // and update the current_medium and dispersion state accordingly.
+        bool transmitted = !thin_walled && (material == MATERIAL_OPENPBR) && (dot(winputW, NgW) * dot(dW, NgW) < 0.0);
         if (transmitted)
         {
 #ifdef TRANSMISSION_ENABLED
-            if (!in_dielectric && !dispersive)
             {
-                // On first transmission into dielectric, apply associated color of stochastically chosen wavelength
-                // (where the color channel normalization here is just an approximation)
+                // On first transmission into dielectric, apply spectral weight for dispersion
+                // (skip if thin-film already applied spectral weight at path start)
                 if (transmission_dispersion_scale > 0.0)
-                    surface_throughput *= xyzToRgb(xyzFit_1931(wavelength_nm)) * vec3(2.7, 3.3, 3.45);
-                dispersive = true;
+                {
+#ifndef THIN_FILM_ENABLED
+                    surface_throughput *= xyzToRgb(xyzFit_1931(wavelength_nm)) * SPECTRAL_NORM;
+#endif
+                }
             }
-#endif // DISPERSION_ENABLED
+#endif // TRANSMISSION_ENABLED
 
             // Update in_dielectric state
             in_dielectric = !in_dielectric;

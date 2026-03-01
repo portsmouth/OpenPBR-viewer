@@ -3,7 +3,7 @@
 // "Fuzz"
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#ifdef FUZZ_ENABLED
+#if defined(FUZZ_ENABLED)
 
 // Gaussian fit to directional albedo table.
 float zeltner_sheen_dir_albedo(float x, float y)
@@ -29,7 +29,7 @@ float zeltner_sheen_ltc_bInv(float x, float y)
 vec3 fuzz_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
                         inout float pdf_woutputL)
 {
-#ifdef FUZZ_ENABLED
+#if defined(FUZZ_ENABLED)
     if (winputL.z < DENOM_TOLERANCE || woutputL.z < DENOM_TOLERANCE) return vec3(0.0);
 
     float NdotV = min(winputL.z, 1.0);

@@ -4,8 +4,8 @@
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-vec3 metal_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
-                         inout float pdf_woutputL)
+vec3 metal_brdf_evaluate_impl(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
+                              inout float pdf_woutputL)
 {
     if (winputL.z < DENOM_TOLERANCE || woutputL.z < DENOM_TOLERANCE)
     {
@@ -24,8 +24,27 @@ vec3 metal_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wo
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
     float DV = D * ggx_G1(winputL, alpha_x, alpha_y) * max(0.0, dot(winputL, mR)) / max(DENOM_TOLERANCE, winputL.z);
 
-    // Thus compute PDF of woutputL sample
-    float dwh_dwo = 1.0 / max(abs(4.0*dot(winputL, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
+    // Jacobian of the half-direction mapping
+    float dwh_dwo = 1.0 / max(abs(4.0*dot(winputL, mR)), DENOM_TOLERANCE);
+
+    // Compute shadowing-masking term
+    float G2 = ggx_G2(winputL, woutputL, alpha_x, alpha_y);
+    float DG2 = D * G2;
+
+    // PR #254: blend core and haze lobes
+#ifdef HAZE_ENABLED
+    if (specular_haze > 0.0)
+    {
+        float alpha_hx, alpha_hy;
+        specular_haze_ndf_roughnesses(alpha_hx, alpha_hy);
+        float D_h = ggx_ndf_eval(mR, alpha_hx, alpha_hy);
+        float DV_h = D_h * ggx_G1(winputL, alpha_hx, alpha_hy) * max(0.0, dot(winputL, mR)) / max(DENOM_TOLERANCE, winputL.z);
+        DV = mix(DV, DV_h, specular_haze);
+        float G2_h = ggx_G2(winputL, woutputL, alpha_hx, alpha_hy);
+        DG2 = mix(DG2, D_h * G2_h, specular_haze);
+    }
+#endif
+
     pdf_woutputL = max(PDF_EPSILON, DV * dwh_dwo);
 
     // Compute Fresnel factor for the conductor reflection
@@ -42,16 +61,13 @@ vec3 metal_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 wo
 #endif // THIN_FILM_ENABLED
         F = F_nofilm;
 
-    // Compute shadowing-masking term
-    float G2 = ggx_G2(winputL, woutputL, alpha_x, alpha_y);
-
     // Thus evaluate BRDF
-    return min(vec3(1.0), specular_weight*F) * D * G2 / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
+    return min(vec3(1.0), specular_weight*F) * DG2 / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
 }
 
 
-vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
-                       out vec3 woutputL, out float pdf_woutputL)
+vec3 metal_brdf_sample_impl(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
+                            out vec3 woutputL, out float pdf_woutputL)
 {
     if (winputL.z < DENOM_TOLERANCE)
     {
@@ -64,8 +80,23 @@ vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint r
     float alpha_x, alpha_y;
     specular_ndf_roughnesses(alpha_x, alpha_y);
 
+    // NDF sampling roughness (may differ from core when haze is active)
+    float samp_ax = alpha_x, samp_ay = alpha_y;
+#ifdef HAZE_ENABLED
+    float alpha_hx = alpha_x, alpha_hy = alpha_y;
+    if (specular_haze > 0.0)
+    {
+        specular_haze_ndf_roughnesses(alpha_hx, alpha_hy);
+        if (rand(rndSeed) < specular_haze)
+        {
+            samp_ax = alpha_hx;
+            samp_ay = alpha_hy;
+        }
+    }
+#endif
+
     // Sample local microfacet normal mR, according to Heitz "Sampling the GGX Distribution of Visible Normals"
-    vec3 mR = ggx_ndf_sample(winputL, alpha_x, alpha_y, rndSeed);
+    vec3 mR = ggx_ndf_sample(winputL, samp_ax, samp_ay, rndSeed);
 
     // Compute woutputL by reflecting winputL about mR
     woutputL = -winputL + 2.0*dot(winputL, mR)*mR;
@@ -76,8 +107,25 @@ vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint r
     float D = ggx_ndf_eval(mR, alpha_x, alpha_y);
     float DV = D * ggx_G1(winputL, alpha_x, alpha_y) * max(0.0, dot(winputL, mR)) / max(DENOM_TOLERANCE, winputL.z);
 
-    // Thus compute PDF of woutputL sample
-    float dwh_dwo = 1.0 / max(abs(4.0*dot(winputL, mR)), DENOM_TOLERANCE); // Jacobian of the half-direction mapping
+    // Jacobian of the half-direction mapping
+    float dwh_dwo = 1.0 / max(abs(4.0*dot(winputL, mR)), DENOM_TOLERANCE);
+
+    // Compute shadowing-masking term
+    float G2 = ggx_G2(winputL, woutputL, alpha_x, alpha_y);
+    float DG2 = D * G2;
+
+    // PR #254: blend core and haze lobes
+#ifdef HAZE_ENABLED
+    if (specular_haze > 0.0)
+    {
+        float D_h = ggx_ndf_eval(mR, alpha_hx, alpha_hy);
+        float DV_h = D_h * ggx_G1(winputL, alpha_hx, alpha_hy) * max(0.0, dot(winputL, mR)) / max(DENOM_TOLERANCE, winputL.z);
+        DV = mix(DV, DV_h, specular_haze);
+        float G2_h = ggx_G2(winputL, woutputL, alpha_hx, alpha_hy);
+        DG2 = mix(DG2, D_h * G2_h, specular_haze);
+    }
+#endif
+
     pdf_woutputL = max(PDF_EPSILON, DV * dwh_dwo);
 
     // Compute Fresnel factor for the conductor reflection
@@ -91,11 +139,57 @@ vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint r
     F = F_nofilm;
 #endif // THIN_FILM_ENABLED
 
-    // Compute shadowing-masking term
-    float G2 = ggx_G2(winputL, woutputL, alpha_x, alpha_y);
-
     // Thus evaluate BRDF
-    return min(vec3(1.0), specular_weight*F) * D * G2 / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
+    return min(vec3(1.0), specular_weight*F) * DG2 / max(4.0*abs(woutputL.z)*abs(winputL.z), DENOM_TOLERANCE);
+}
+
+
+// PR #255 (https://github.com/AcademySoftwareFoundation/OpenPBR/pull/255): specular retroreflectivity
+vec3 metal_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL,
+                         inout float pdf_woutputL)
+{
+    vec3 f = metal_brdf_evaluate_impl(pW, basis, winputL, woutputL, pdf_woutputL);
+#ifdef RETRO_ENABLED
+    if (specular_retroreflectivity > 0.0)
+    {
+        vec3 wi_retro = vec3(-winputL.x, -winputL.y, winputL.z);
+        float pdf_retro;
+        vec3 f_retro = metal_brdf_evaluate_impl(pW, basis, wi_retro, woutputL, pdf_retro);
+        f = mix(f, f_retro, specular_retroreflectivity);
+        pdf_woutputL = mix(pdf_woutputL, pdf_retro, specular_retroreflectivity);
+    }
+#endif
+    return f;
+}
+
+vec3 metal_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
+                       out vec3 woutputL, out float pdf_woutputL)
+{
+#ifdef RETRO_ENABLED
+    if (specular_retroreflectivity > 0.0)
+    {
+        vec3 wi_retro = vec3(-winputL.x, -winputL.y, winputL.z);
+        if (rand(rndSeed) < specular_retroreflectivity)
+        {
+            // Sample the retro lobe, evaluate the standard lobe
+            vec3 f_retro = metal_brdf_sample_impl(pW, basis, wi_retro, rndSeed, woutputL, pdf_woutputL);
+            float pdf_std;
+            vec3 f_std = metal_brdf_evaluate_impl(pW, basis, winputL, woutputL, pdf_std);
+            pdf_woutputL = mix(pdf_std, pdf_woutputL, specular_retroreflectivity);
+            return mix(f_std, f_retro, specular_retroreflectivity);
+        }
+        else
+        {
+            // Sample the standard lobe, evaluate the retro lobe
+            vec3 f_std = metal_brdf_sample_impl(pW, basis, winputL, rndSeed, woutputL, pdf_woutputL);
+            float pdf_retro;
+            vec3 f_retro = metal_brdf_evaluate_impl(pW, basis, wi_retro, woutputL, pdf_retro);
+            pdf_woutputL = mix(pdf_woutputL, pdf_retro, specular_retroreflectivity);
+            return mix(f_std, f_retro, specular_retroreflectivity);
+        }
+    }
+#endif
+    return metal_brdf_sample_impl(pW, basis, winputL, rndSeed, woutputL, pdf_woutputL);
 }
 
 

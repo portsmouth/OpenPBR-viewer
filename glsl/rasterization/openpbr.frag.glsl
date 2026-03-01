@@ -25,7 +25,7 @@ uniform vec2 resolution;
 
 uniform float base_weight;
 uniform vec3  base_color;
-uniform float base_roughness;
+uniform float base_diffuse_roughness;
 uniform float base_metalness;
 
 uniform float specular_weight;
@@ -33,6 +33,9 @@ uniform vec3  specular_color;
 uniform float specular_roughness;
 uniform float specular_anisotropy;
 uniform float specular_ior;
+uniform float specular_haze;
+uniform float specular_haze_spread;
+uniform float specular_retroreflectivity;
 
 uniform float transmission_weight;
 uniform vec3  transmission_color;
@@ -63,6 +66,7 @@ uniform float thin_film_weight;
 uniform float thin_film_thickness;
 uniform float thin_film_ior;
 
+uniform float emission_weight;
 uniform float emission_luminance;
 uniform vec3  emission_color;
 
@@ -101,13 +105,16 @@ struct OpenPBRMaterial
 {
     float base_weight;
     vec3  base_color;
-    float base_roughness;
+    float base_diffuse_roughness;
     float base_metalness;
     float specular_weight;
     vec3  specular_color;
     float specular_roughness;
     float specular_anisotropy;
     float specular_ior;
+    float specular_haze;
+    float specular_haze_spread;
+    float specular_retroreflectivity;
     float transmission_weight;
     vec3  transmission_color;
     float transmission_depth;
@@ -132,6 +139,7 @@ struct OpenPBRMaterial
     float thin_film_weight;
     float thin_film_thickness;
     float thin_film_ior;
+    float emission_weight;
     float emission_luminance;
     vec3  emission_color;
     float geometry_opacity;
@@ -142,13 +150,16 @@ void openpbr_init_material(inout OpenPBRMaterial M)
 {
     M.base_weight                         = base_weight;
     M.base_color                          = base_color;
-    M.base_roughness                      = base_roughness;
+    M.base_diffuse_roughness              = base_diffuse_roughness;
     M.base_metalness                      = base_metalness;
     M.specular_weight                     = specular_weight;
     M.specular_color                      = specular_color;
     M.specular_roughness                  = specular_roughness;
     M.specular_anisotropy                 = specular_anisotropy;
     M.specular_ior                        = specular_ior;
+    M.specular_haze                       = specular_haze;
+    M.specular_haze_spread                = specular_haze_spread;
+    M.specular_retroreflectivity          = specular_retroreflectivity;
     M.transmission_weight                 = transmission_weight;
     M.transmission_color                  = transmission_color;
     M.transmission_depth                  = transmission_depth;
@@ -173,6 +184,7 @@ void openpbr_init_material(inout OpenPBRMaterial M)
     M.thin_film_weight                    = thin_film_weight;
     M.thin_film_thickness                 = thin_film_thickness;
     M.thin_film_ior                       = thin_film_ior;
+    M.emission_weight                     = emission_weight;
     M.emission_luminance                  = emission_luminance;
     M.emission_color                      = emission_color;
     M.geometry_opacity                    = geometry_opacity;
@@ -251,13 +263,15 @@ vec3 FresnelSchlick(vec3 F0, float mu)
     return F0 + pow(1.0 - mu, 5.0)*(vec3(1.0) - F0);
 }
 
+// PR #256 (https://github.com/AcademySoftwareFoundation/OpenPBR/pull/256):
+// Clamp result to [0, 1] to prevent negative values from F82 tint
 vec3 FresnelConductorF82(float mu, vec3 F0, vec3 F82)
 {
     const float mu_bar = 1.0/7.0;
     const float denom = mu_bar * pow(1.0 - mu_bar, 6.0);
     vec3 Fschlick_bar = FresnelSchlick(F0, mu_bar);
     vec3 Fschlick     = FresnelSchlick(F0, mu);
-    return Fschlick - mu * pow(1.0 - mu, 6.0) * (vec3(1.0) - F82) * Fschlick_bar / denom;
+    return clamp(Fschlick - mu * pow(1.0 - mu, 6.0) * (vec3(1.0) - F82) * Fschlick_bar / denom, vec3(0.0), vec3(1.0));
 }
 
 // Dielectric Fresnel factor.
@@ -289,6 +303,40 @@ float FresnelDielectricReflectanceNormal(float eta_ti)
     float etamo = eta_ti - 1.0;
     float etapo = eta_ti + 1.0;
     return sqr(etamo)/sqr(etapo);
+}
+
+// PR #247 (https://github.com/AcademySoftwareFoundation/OpenPBR/pull/247):
+// specular_weight (>= 0) modulates the Fresnel F0 linearly, without disturbing refraction (decoupled IOR)
+float FresnelDielectricReflectanceModulated(in float mui, in float eta_ti, in float specular_weight)
+{
+    float etam1 = eta_ti - 1.0;
+    float etam1sqr = sqr(etam1);
+    if (etam1sqr < FLT_EPSILON) return 0.0;
+    if (specular_weight != 1.0)
+    {
+        // Compute modified IOR ratio (modulates F0 by specular_weight)
+        float F0 = etam1sqr / sqr(1.0+eta_ti);
+        float epsilon = sign(etam1) * sqrt(clamp(specular_weight * F0, 0.0, 1.0));
+        float eta_ti_prime = (1.0 + epsilon) / max(1.0 - epsilon, DENOM_TOLERANCE);
+
+        if (eta_ti_prime >= 1.0) // (No TIR possible)
+        {
+            // Directly use modulated IOR
+            return FresnelDielectricReflectance(mui, eta_ti_prime);
+        }
+        else
+        {
+            // TIR is possible - use Stokes reciprocity to maintain energy conservation
+            // Check for TIR using the *unmodified* IOR (refraction direction unchanged)
+            float mu2_t = 1.0 - (1.0 - sqr(mui))/sqr(eta_ti);
+            if (mu2_t <= 0.0)
+                return 1.0; // (TIR occurs)
+            // Use "squeezed" Fresnel curve at the refracted angle with modulated IOR
+            float mu_t = sqrt(mu2_t);
+            return FresnelDielectricReflectance(mu_t, 1.0/eta_ti_prime);
+        }
+    }
+    return FresnelDielectricReflectance(mui, eta_ti);
 }
 
 float FresnelDielectricReflectanceAverage(float eta)
@@ -365,6 +413,142 @@ float ggx_G2(in vec3 V, in vec3 L, in vec2 alpha)
 }
 
 
+#ifdef THIN_FILM_ENABLED
+
+///////////////////////////////////////////////////////////////////////
+// Thin-film iridescence via per-channel Airy summation
+//
+// Reference: Kutz & Portsmouth, "Thin-Film Iridescence via Complex Arithmetic"
+//
+// Evaluates at 3 fixed wavelengths (R=700nm, G=546.1nm, B=435.8nm).
+///////////////////////////////////////////////////////////////////////
+
+// Complex arithmetic (complex numbers as vec2(real, imag))
+vec2 cx(float r, float i)              { return vec2(r, i); }
+vec2 cx_mul(in vec2 a, in vec2 b)      { return vec2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x); }
+vec2 cx_conj(in vec2 z)                { return vec2(z.x, -z.y); }
+float cx_abs2(in vec2 z)               { return z.x*z.x + z.y*z.y; }
+vec2 cx_div(in vec2 a, in vec2 b)      { return cx_mul(a, cx_conj(b)) / max(cx_abs2(b), 1e-30); }
+vec2 cx_exp(in vec2 z)                 { return exp(z.x) * vec2(cos(z.y), sin(z.y)); }
+
+vec2 cx_sqrt(in vec2 z)
+{
+    float r = length(z);
+    if (r < 1e-30) return vec2(0.0);
+    float half_angle = 0.5 * atan(z.y, z.x);
+    return sqrt(r) * vec2(cos(half_angle), sin(half_angle));
+}
+
+// Gulbrandsen mapping: F0 + edge-tint -> (n, k) for conductor IOR
+void GulbrandsenMapping(in vec3 F0, in vec3 edgetint,
+                        inout vec3 n, inout vec3 k)
+{
+   vec3 r = clamp(F0, 0.0, 0.99);
+   vec3 g = edgetint;
+   vec3 r_sqrt = sqrt(r);
+   vec3 n_min = (vec3(1.0) -      r) / (vec3(1.0) +      r);
+   vec3 n_max = (vec3(1.0) + r_sqrt) / (vec3(1.0) - r_sqrt);
+   n = mix(n_max, n_min, g);
+   vec3 k2 = (sqr(n + vec3(1.0)) * r - sqr(n - vec3(1.0))) / (vec3(1.0) - r);
+   k2 = max(vec3(0), k2);
+   k = sqrt(k2);
+}
+
+// Step 1: Complex Snell's law with branch selection: Im(n_t * cos_t) >= 0
+vec2 tf_cos_refracted(in vec2 cos_i, in vec2 n_i, in vec2 n_t)
+{
+    vec2 sin_i_sq = cx(1.0, 0.0) - cx_mul(cos_i, cos_i);
+    vec2 ratio = cx_div(n_i, n_t);
+    vec2 sin_t_sq = cx_mul(cx_mul(ratio, ratio), sin_i_sq);
+    vec2 cos_t = cx_sqrt(cx(1.0, 0.0) - sin_t_sq);
+    if (cx_mul(n_t, cos_t).y < 0.0) cos_t = -cos_t;
+    return cos_t;
+}
+
+// Step 2: Complex Fresnel amplitude coefficients (unified for all media)
+void tf_fresnel(in vec2 cos_i, in vec2 cos_t, in vec2 n_i, in vec2 n_t,
+                out vec2 r_s, out vec2 r_p, out vec2 t_s, out vec2 t_p)
+{
+    vec2 ni_ci = cx_mul(n_i, cos_i);
+    vec2 nt_ct = cx_mul(n_t, cos_t);
+    vec2 ni_ct = cx_mul(n_i, cos_t);
+    vec2 nt_ci = cx_mul(n_t, cos_i);
+
+    r_s = cx_div(ni_ci - nt_ct, ni_ci + nt_ct);
+    t_s = cx_div(2.0 * ni_ci,   ni_ci + nt_ct);
+    r_p = cx_div(nt_ci - ni_ct, nt_ci + ni_ct);
+    t_p = cx_div(2.0 * ni_ci,   nt_ci + ni_ct);
+}
+
+// 6-step Airy summation at a single wavelength
+float tf_thin_film_R(float cos_1, float n_1, float n_2, in vec2 n_3, float d, float lambda)
+{
+    vec2 cn1 = cx(n_1, 0.0);
+    vec2 cn2 = cx(n_2, 0.0);
+
+    // Step 1: Snell's law
+    vec2 cos_2 = tf_cos_refracted(cx(cos_1, 0.0), cn1, cn2);
+    vec2 cos_3 = tf_cos_refracted(cos_2, cn2, n_3);
+
+    // Step 2: Fresnel at both interfaces
+    vec2 r12_s, r12_p, t12_s, t12_p;
+    tf_fresnel(cx(cos_1, 0.0), cos_2, cn1, cn2, r12_s, r12_p, t12_s, t12_p);
+
+    vec2 r23_s, r23_p, t23_s, t23_p;
+    tf_fresnel(cos_2, cos_3, cn2, n_3, r23_s, r23_p, t23_s, t23_p);
+
+    // Step 3: Reciprocity for 2->1
+    vec2 r21_s = -r12_s;
+    vec2 r21_p = -r12_p;
+    vec2 ratio = cx_div(cx_mul(cn2, cos_2), cx_mul(cn1, cx(cos_1, 0.0)));
+    vec2 t21_s = cx_mul(t12_s, ratio);
+    vec2 t21_p = cx_mul(t12_p, ratio);
+
+    // Step 4: Round-trip phase shift
+    vec2 delta = (4.0 * PI * n_2 * d / lambda) * cos_2;
+    vec2 phi = cx_exp(cx(-delta.y, delta.x));
+
+    // Step 5: Airy summation
+    vec2 denom_s = cx(1.0, 0.0) - cx_mul(r21_s, cx_mul(r23_s, phi));
+    vec2 numer_s = cx_mul(t12_s, cx_mul(r23_s, cx_mul(t21_s, phi)));
+    vec2 r_s = r12_s + cx_div(numer_s, denom_s);
+
+    vec2 denom_p = cx(1.0, 0.0) - cx_mul(r21_p, cx_mul(r23_p, phi));
+    vec2 numer_p = cx_mul(t12_p, cx_mul(r23_p, cx_mul(t21_p, phi)));
+    vec2 r_p = r12_p + cx_div(numer_p, denom_p);
+
+    // Step 6: Power reflectance (unpolarized)
+    float R = 0.5 * (cx_abs2(r_s) + cx_abs2(r_p));
+    return clamp(R, 0.0, 1.0);
+}
+
+// Per-channel thin-film: evaluate at R=700nm, G=546.1nm, B=435.8nm
+vec3 FresnelThinFilmOverDielectric(float mui, const in OpenPBRMaterial pbr)
+{
+    float n_ext = mix(1.0, pbr.coat_ior, pbr.coat_weight);
+    vec2 cn3 = cx(pbr.specular_ior, 0.0);
+    return vec3(
+        tf_thin_film_R(mui, n_ext, pbr.thin_film_ior, cn3, pbr.thin_film_thickness, 700.0),
+        tf_thin_film_R(mui, n_ext, pbr.thin_film_ior, cn3, pbr.thin_film_thickness, 546.1),
+        tf_thin_film_R(mui, n_ext, pbr.thin_film_ior, cn3, pbr.thin_film_thickness, 435.8)
+    );
+}
+
+vec3 FresnelThinFilmOverConductor(float mui, const in OpenPBRMaterial pbr)
+{
+    float n_ext = mix(1.0, pbr.coat_ior, pbr.coat_weight);
+    vec3 n_c, k_c;
+    GulbrandsenMapping(pbr.base_weight * pbr.base_color, pbr.specular_color, n_c, k_c);
+    return vec3(
+        tf_thin_film_R(mui, n_ext, pbr.thin_film_ior, cx(n_c.r, k_c.r), pbr.thin_film_thickness, 700.0),
+        tf_thin_film_R(mui, n_ext, pbr.thin_film_ior, cx(n_c.g, k_c.g), pbr.thin_film_thickness, 546.1),
+        tf_thin_film_R(mui, n_ext, pbr.thin_film_ior, cx(n_c.b, k_c.b), pbr.thin_film_thickness, 435.8)
+    );
+}
+
+#endif // THIN_FILM_ENABLED
+
+
 ///////////////////////////////////////////////////////////////////////
 // Fuzz BRDF
 ///////////////////////////////////////////////////////////////////////
@@ -428,8 +612,9 @@ vec3 fuzz_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 
 struct DielectricBSDFParams
 {
-    float eta_ie; // internal/external IOR ratio
-    vec2 alpha;   // alpha roughnesses
+    float eta_ie;        // internal/external IOR ratio
+    vec2 alpha;          // alpha roughnesses
+    float specular_weight; // for modulated Fresnel
 };
 
 vec3 dielectric_brdf_evaluate(in vec3 V, in vec3 L, const in DielectricBSDFParams P)
@@ -437,7 +622,7 @@ vec3 dielectric_brdf_evaluate(in vec3 V, in vec3 L, const in DielectricBSDFParam
     vec3 H = normalize(V + L); // Micronormal
     if (dot(H, V) < 0.0 || dot(H, L) < 0.0)
         return vec3(0.0); // Discard backfacing microfacets
-    float F = FresnelDielectricReflectance(abs(dot(V, H)), P.eta_ie); // Dielectric Fresnel
+    float F = FresnelDielectricReflectanceModulated(abs(dot(V, H)), P.eta_ie, P.specular_weight); // Dielectric Fresnel with decoupled IOR
     float D = ggx_ndf_eval(H, P.alpha); // NDF
     float G2 = ggx_G2(V, L, P.alpha); // Shadowing-masking term
     float J = 1.0 / max(4.0 * abs(V.z) * abs(L.z), DENOM_TOLERANCE); // Jacobian of half-direction mapping
@@ -457,7 +642,7 @@ vec3 dielectric_brdf_albedo(in vec3 V, const in DielectricBSDFParams P)
         float G2 = ggx_G2(V, L, P.alpha);
         float G1 = ggx_G1(V, P.alpha);
         vec3 H = normalize(V + L);
-        float F = FresnelDielectricReflectance(abs(dot(V, H)), P.eta_ie);
+        float F = FresnelDielectricReflectanceModulated(abs(dot(V, H)), P.eta_ie, P.specular_weight);
         albedo += F * G2 /  max(G1, DENOM_TOLERANCE);
     }
     albedo /= float(num_samples);
@@ -476,26 +661,26 @@ vec3 coat_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
     DielectricBSDFParams P;
     P.eta_ie = pbr.coat_ior; // (assuming here that ambient IOR is 1)
     P.alpha  = coat_ndf_roughnesses(pbr);
+    P.specular_weight = 1.0; // coat is not affected by specular_weight
     return dielectric_brdf_evaluate(V, L, P);
 }
 
 vec3 coat_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 {
     DielectricBSDFParams P;
-    P.eta_ie = pbr.coat_ior; // (assume ambient IOR is 1)
+    P.eta_ie = pbr.coat_ior; // (assuming here that ambient IOR is 1)
     P.alpha  = coat_ndf_roughnesses(pbr);
+    P.specular_weight = 1.0; // coat is not affected by specular_weight
     return dielectric_brdf_albedo(V, P);
 }
 
 float specular_brdf_ior_ratio(const in OpenPBRMaterial pbr)
 {
-    // Compute IOR ratio at specular boundary for BRDF calculation, accounting for coat
+    // Compute base IOR ratio at specular boundary, accounting for coat
+    // (but not yet applying specular_weight modulation - that happens in Fresnel evaluation)
     float eta_sc = pbr.specular_ior / pbr.coat_ior;
     if (eta_sc < 1.0) eta_sc = 1.0/eta_sc; // (flip spec/coat IOR ratio if needed to keep it > 1, to correct for refraction in coat)
-    float eta_s = mix(pbr.specular_ior, eta_sc, coat_weight); // (assuming here that ambient IOR is 1)
-    float F_s = sqr((eta_s - 1.0)/(eta_s + 1.0)); // Fresnel at normal incidence
-    float tmp = min(1.0, sign(eta_s - 1.0) * sqrt(clamp(pbr.specular_weight * F_s, 0.0, 1.0)));
-    return (1.0 + tmp) / max(1.0 - tmp, DENOM_TOLERANCE); // modulated IOR ratio
+    return mix(pbr.specular_ior, eta_sc, coat_weight); // (assuming here that ambient IOR is 1)
 }
 
 float specular_ior_modulated(const in OpenPBRMaterial pbr)
@@ -514,20 +699,141 @@ vec2 specular_ndf_roughnesses(const in OpenPBRMaterial pbr)
     return vec2(alpha_x, alpha_y);
 }
 
-vec3 specular_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
+// PR #254 (https://github.com/AcademySoftwareFoundation/OpenPBR/pull/254): specular haze (dual-lobe NDF)
+#ifdef HAZE_ENABLED
+vec2 specular_haze_ndf_roughnesses(const in OpenPBRMaterial pbr)
 {
+    float r_haze = mix(pbr.specular_roughness, 1.0, pbr.specular_haze_spread);
+    float alpha_x = max(ALPHA_TOLERANCE, sqr(r_haze) * sqrt(2.0/(1.0 + sqr(1.0 - pbr.specular_anisotropy))));
+    float alpha_y = max(ALPHA_TOLERANCE, (1.0 - pbr.specular_anisotropy) * alpha_x);
+    return vec2(alpha_x, alpha_y);
+}
+#endif
+
+vec3 specular_brdf_evaluate_impl(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
+{
+#ifdef THIN_FILM_ENABLED
+    if (pbr.thin_film_weight > 0.0)
+    {
+        vec3 H = normalize(V + L);
+        if (dot(H, V) < 0.0 || dot(H, L) < 0.0) return vec3(0.0);
+        float cos_h = abs(dot(V, H));
+        vec3 F_film = FresnelThinFilmOverDielectric(cos_h, pbr);
+        float F_nofilm = FresnelDielectricReflectanceModulated(cos_h, specular_brdf_ior_ratio(pbr), pbr.specular_weight);
+        vec3 F = mix(vec3(F_nofilm), F_film, pbr.thin_film_weight);
+        vec2 alpha = specular_ndf_roughnesses(pbr);
+        float D = ggx_ndf_eval(H, alpha);
+        float G2 = ggx_G2(V, L, alpha);
+        float DG2 = D * G2;
+#ifdef HAZE_ENABLED
+        if (pbr.specular_haze > 0.0)
+        {
+            vec2 alpha_h = specular_haze_ndf_roughnesses(pbr);
+            float D_h = ggx_ndf_eval(H, alpha_h);
+            float G2_h = ggx_G2(V, L, alpha_h);
+            DG2 = mix(DG2, D_h * G2_h, pbr.specular_haze);
+        }
+#endif
+        float J = 1.0 / max(4.0 * abs(V.z) * abs(L.z), DENOM_TOLERANCE);
+        return F * DG2 * J;
+    }
+#endif
     DielectricBSDFParams P;
     P.eta_ie = specular_brdf_ior_ratio(pbr);
     P.alpha  = specular_ndf_roughnesses(pbr);
-    return dielectric_brdf_evaluate(V, L, P);
+    P.specular_weight = pbr.specular_weight;
+    vec3 f = dielectric_brdf_evaluate(V, L, P);
+#ifdef HAZE_ENABLED
+    if (pbr.specular_haze > 0.0)
+    {
+        P.alpha = specular_haze_ndf_roughnesses(pbr);
+        vec3 f_h = dielectric_brdf_evaluate(V, L, P);
+        f = mix(f, f_h, pbr.specular_haze);
+    }
+#endif
+    return f;
+}
+
+vec3 specular_brdf_albedo_impl(in vec3 V, const in OpenPBRMaterial pbr)
+{
+#ifdef THIN_FILM_ENABLED
+    if (pbr.thin_film_weight > 0.0)
+    {
+        vec2 alpha = specular_ndf_roughnesses(pbr);
+        float eta_ie = specular_brdf_ior_ratio(pbr);
+        const int num_samples = 16;
+        vec3 albedo = vec3(0.0);
+        for (int n=0; n<num_samples; ++n)
+        {
+            vec2 xi = fibonacci_lattice(n, num_samples);
+            vec3 L = ggx_ndf_sample(V, alpha, xi);
+            float G2 = ggx_G2(V, L, alpha);
+            float G1 = ggx_G1(V, alpha);
+            vec3 H = normalize(V + L);
+            float cos_h = abs(dot(V, H));
+            vec3 F_film = FresnelThinFilmOverDielectric(cos_h, pbr);
+            float F_nofilm = FresnelDielectricReflectanceModulated(cos_h, eta_ie, pbr.specular_weight);
+            vec3 F = mix(vec3(F_nofilm), F_film, pbr.thin_film_weight);
+            float ratio = G2 / max(G1, DENOM_TOLERANCE);
+#ifdef HAZE_ENABLED
+            if (pbr.specular_haze > 0.0)
+            {
+                vec2 alpha_h = specular_haze_ndf_roughnesses(pbr);
+                float G2_h = ggx_G2(V, L, alpha_h);
+                float G1_h = ggx_G1(V, alpha_h);
+                float ratio_h = G2_h / max(G1_h, DENOM_TOLERANCE);
+                ratio = mix(ratio, ratio_h, pbr.specular_haze);
+            }
+#endif
+            albedo += F * ratio;
+        }
+        albedo /= float(num_samples);
+        return clamp(albedo, vec3(0.0), vec3(1.0));
+    }
+#endif
+    DielectricBSDFParams P;
+    P.eta_ie = specular_brdf_ior_ratio(pbr);
+    P.alpha  = specular_ndf_roughnesses(pbr);
+    P.specular_weight = pbr.specular_weight;
+    vec3 albedo = dielectric_brdf_albedo(V, P);
+#ifdef HAZE_ENABLED
+    if (pbr.specular_haze > 0.0)
+    {
+        P.alpha = specular_haze_ndf_roughnesses(pbr);
+        vec3 albedo_h = dielectric_brdf_albedo(V, P);
+        albedo = mix(albedo, albedo_h, pbr.specular_haze);
+    }
+#endif
+    return albedo;
+}
+
+// PR #255: specular retroreflectivity wrappers
+vec3 specular_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
+{
+    vec3 f = specular_brdf_evaluate_impl(V, L, pbr);
+#ifdef RETRO_ENABLED
+    if (pbr.specular_retroreflectivity > 0.0)
+    {
+        vec3 V_retro = vec3(-V.x, -V.y, V.z);
+        vec3 f_retro = specular_brdf_evaluate_impl(V_retro, L, pbr);
+        f = mix(f, f_retro, pbr.specular_retroreflectivity);
+    }
+#endif
+    return f;
 }
 
 vec3 specular_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 {
-    DielectricBSDFParams P;
-    P.eta_ie = specular_brdf_ior_ratio(pbr);
-    P.alpha  = specular_ndf_roughnesses(pbr);
-    return dielectric_brdf_albedo(V, P);
+    vec3 a = specular_brdf_albedo_impl(V, pbr);
+#ifdef RETRO_ENABLED
+    if (pbr.specular_retroreflectivity > 0.0)
+    {
+        vec3 V_retro = vec3(-V.x, -V.y, V.z);
+        vec3 a_retro = specular_brdf_albedo_impl(V_retro, pbr);
+        a = mix(a, a_retro, pbr.specular_retroreflectivity);
+    }
+#endif
+    return a;
 }
 
 
@@ -535,21 +841,42 @@ vec3 specular_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 // Metal BRDF
 ///////////////////////////////////////////////////////////////////////
 
-vec3 metal_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
+vec3 metal_brdf_evaluate_impl(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 {
     vec3 H = normalize(V + L); // Micronormal
     vec3 F0  = pbr.base_weight * pbr.base_color;
     vec3 F82 = pbr.specular_color;
-    vec3 F = FresnelConductorF82(abs(dot(V, H)), F0, F82); // Conductor Fresnel
+    vec3 F;
+#ifdef THIN_FILM_ENABLED
+    if (pbr.thin_film_weight > 0.0)
+    {
+        float cos_h = abs(dot(V, H));
+        vec3 F_film = FresnelThinFilmOverConductor(cos_h, pbr);
+        vec3 F_nofilm = FresnelConductorF82(cos_h, F0, F82);
+        F = mix(F_nofilm, F_film, pbr.thin_film_weight);
+    }
+    else
+#endif
+    F = FresnelConductorF82(abs(dot(V, H)), F0, F82);
     vec2 alpha = specular_ndf_roughnesses(pbr);
     float D = ggx_ndf_eval(H, alpha); // NDF
     float G2 = ggx_G2(V, L, alpha); // Shadowing-masking term
+    float DG2 = D * G2;
+#ifdef HAZE_ENABLED
+    if (pbr.specular_haze > 0.0)
+    {
+        vec2 alpha_h = specular_haze_ndf_roughnesses(pbr);
+        float D_h = ggx_ndf_eval(H, alpha_h);
+        float G2_h = ggx_G2(V, L, alpha_h);
+        DG2 = mix(DG2, D_h * G2_h, pbr.specular_haze);
+    }
+#endif
     float J = 1.0 / max(4.0 * abs(V.z) * abs(L.z), DENOM_TOLERANCE); // Jacobian of half-direction mapping
-    vec3 f = min(vec3(1.0), pbr.specular_weight*F) * D * G2 * J;
+    vec3 f = min(vec3(1.0), pbr.specular_weight*F) * DG2 * J;
     return f;
 }
 
-vec3 metal_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
+vec3 metal_brdf_albedo_impl(in vec3 V, const in OpenPBRMaterial pbr)
 {
     // Approximate albedo via (deterministic) Monte-Carlo sampling:
     const int num_samples = 16;
@@ -564,11 +891,61 @@ vec3 metal_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
         vec3 H = normalize(V + L);
         vec3 F0  = pbr.base_weight * pbr.base_color;
         vec3 F82 = pbr.specular_color;
-        vec3 F = FresnelConductorF82(abs(dot(V, H)), F0, F82);
-        albedo += min(vec3(1.0), pbr.specular_weight*F) * G2 /  max(G1, DENOM_TOLERANCE);
+        vec3 F;
+#ifdef THIN_FILM_ENABLED
+        if (pbr.thin_film_weight > 0.0)
+        {
+            float cos_h = abs(dot(V, H));
+            vec3 F_film = FresnelThinFilmOverConductor(cos_h, pbr);
+            vec3 F_nofilm = FresnelConductorF82(cos_h, F0, F82);
+            F = mix(F_nofilm, F_film, pbr.thin_film_weight);
+        }
+        else
+#endif
+        F = FresnelConductorF82(abs(dot(V, H)), F0, F82);
+        float ratio = G2 / max(G1, DENOM_TOLERANCE);
+#ifdef HAZE_ENABLED
+        if (pbr.specular_haze > 0.0)
+        {
+            vec2 alpha_h = specular_haze_ndf_roughnesses(pbr);
+            float G2_h = ggx_G2(V, L, alpha_h);
+            float G1_h = ggx_G1(V, alpha_h);
+            ratio = mix(ratio, G2_h / max(G1_h, DENOM_TOLERANCE), pbr.specular_haze);
+        }
+#endif
+        albedo += pbr.specular_weight*F * ratio;
     }
     albedo /= float(num_samples);
     return clamp(albedo, vec3(0.0), vec3(1.0));
+}
+
+// PR #255: metal retroreflectivity wrappers
+vec3 metal_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
+{
+    vec3 f = metal_brdf_evaluate_impl(V, L, pbr);
+#ifdef RETRO_ENABLED
+    if (pbr.specular_retroreflectivity > 0.0)
+    {
+        vec3 V_retro = vec3(-V.x, -V.y, V.z);
+        vec3 f_retro = metal_brdf_evaluate_impl(V_retro, L, pbr);
+        f = mix(f, f_retro, pbr.specular_retroreflectivity);
+    }
+#endif
+    return f;
+}
+
+vec3 metal_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
+{
+    vec3 a = metal_brdf_albedo_impl(V, pbr);
+#ifdef RETRO_ENABLED
+    if (pbr.specular_retroreflectivity > 0.0)
+    {
+        vec3 V_retro = vec3(-V.x, -V.y, V.z);
+        vec3 a_retro = metal_brdf_albedo_impl(V_retro, pbr);
+        a = mix(a, a_retro, pbr.specular_retroreflectivity);
+    }
+#endif
+    return a;
 }
 
 
@@ -653,7 +1030,7 @@ float E_FON_approx(float mu, float r)
 vec3 diffuse_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 {
     vec3 rho = pbr.base_weight * pbr.base_color;
-    float r = pbr.base_roughness;
+    float r = pbr.base_diffuse_roughness;
     float s = dot(V, L) - V.z * L.z;                 // QON s term
     float stinv = s > 0.0 ? s / max(V.z, L.z) : s;   // Fujii model stinv
     float AF = 1.0 / (1.0 + constant1_FON*r);        // Fujii model A coefficient
@@ -671,7 +1048,7 @@ vec3 diffuse_brdf_evaluate(in vec3 V, in vec3 L, const in OpenPBRMaterial pbr)
 vec3 diffuse_brdf_albedo(in vec3 V, const in OpenPBRMaterial pbr)
 {
     vec3 rho = pbr.base_weight * pbr.base_color;
-    float r = pbr.base_roughness;
+    float r = pbr.base_diffuse_roughness;
     float muI = V.z;                                 // input angle cos
     float AF = 1.0 / (1.0 + constant1_FON*r);        // FON model A coefficient
     float EF = E_FON_approx(muI, r);                 // EFi at rho=1 (approx)
@@ -732,21 +1109,20 @@ void openpbr_lobe_weights(in vec3 V, const in OpenPBRMaterial pbr,
     vec3 w_base_substrate;
     if (has_coat)
     {
-        vec3 base_darkening = vec3(1.0);
-        if (coat_darkening > 0.0)
-        {
-            float Kr = 1.0 - (1.0 - FresnelDielectricReflectanceAverage(pbr.coat_ior))/sqr(pbr.coat_ior);
-            float Ks = FresnelDielectricReflectance(abs(V.z), pbr.coat_ior);
-            float Fs = FresnelDielectricReflectanceNormal(specular_brdf_ior_ratio(pbr));
-            float rd = mix(1.0, pbr.specular_roughness, min(1.f, xi*Fs)); // estimate of roughness of dielectric base
-            float rm = pbr.specular_roughness;                            // roughness of metallic base
-            float rb = mix(rd, rm, M);                                    // thus estimated roughness of entire base
-            float K = mix(Ks, Kr, rb);  // thus estimated internal diffuse reflection coeff.
-            vec3 E_dielectric_base = mix(mix(diff_albedo, sss_albedo, S), trans_albedo, T); // dielectric base albedo
-            vec3 E_base = mix(E_dielectric_base, meta_albedo, M);                           // entire base albedo
-            vec3 Delta = (1.0 - K) / vec3(1.0 - E_base*K);              // full darkening factor
-            base_darkening = mix(vec3(1.0), Delta, C * coat_darkening); // modulated darkening factor
-        }
+        float Kr = 1.0 - (1.0 - FresnelDielectricReflectanceAverage(pbr.coat_ior))/sqr(pbr.coat_ior);
+        float Ks = FresnelDielectricReflectance(abs(V.z), pbr.coat_ior);
+        float Fs = FresnelDielectricReflectanceNormal(specular_brdf_ior_ratio(pbr));
+        float rd = mix(1.0, pbr.specular_roughness, min(1.f, xi*Fs)); // estimate of roughness of dielectric base
+        float rm = pbr.specular_roughness;                            // roughness of metallic base
+        float rb = mix(rd, rm, M);                                    // thus estimated roughness of entire base
+        float K = mix(Ks, Kr, rb);  // thus estimated internal diffuse reflection coeff.
+        vec3 E_dielectric_base = mix(mix(diff_albedo, sss_albedo, S), trans_albedo, T); // dielectric base albedo
+        vec3 E_base = mix(E_dielectric_base, meta_albedo, M);                           // entire base albedo
+        vec3 Delta = (1.0 - K) / vec3(1.0 - E_base*K);              // full darkening factor
+        // PR #253 (https://github.com/AcademySoftwareFoundation/OpenPBR/pull/253):
+        // luminance-preserving interpolation to avoid chromaticity shift
+        float lum_Delta = max(0.2126 * Delta.r + 0.7152 * Delta.g + 0.0722 * Delta.b, DENOM_TOLERANCE);
+        vec3 base_darkening = Delta * mix(1.0 / lum_Delta, 1.0, coat_darkening);
         w_base_substrate = w_coated_base * mix(vec3(1.0), base_darkening * pbr.coat_color * (vec3(1.0) - coat_albedo), C);
     }
     else
@@ -844,6 +1220,27 @@ void main()
     // Initialize material
     OpenPBRMaterial pbr;
     openpbr_init_material(pbr);
+
+    // PR #277 (https://github.com/AcademySoftwareFoundation/OpenPBR/pull/277):
+    // Clamp input parameters per OpenPBR v1.2 spec
+    pbr.base_weight            = clamp(pbr.base_weight, 0.0, 1.0);
+    pbr.base_color             = clamp(pbr.base_color, vec3(0.0), vec3(1.0));
+    pbr.base_diffuse_roughness = clamp(pbr.base_diffuse_roughness, 0.0, 1.0);
+    pbr.base_metalness         = clamp(pbr.base_metalness, 0.0, 1.0);
+    pbr.specular_weight        = max(pbr.specular_weight, 0.0);
+    pbr.specular_color         = clamp(pbr.specular_color, vec3(0.0), vec3(1.0));
+    pbr.specular_roughness     = clamp(pbr.specular_roughness, 0.0, 1.0);
+    pbr.specular_ior           = max(pbr.specular_ior, 1.0);
+    pbr.transmission_weight    = clamp(pbr.transmission_weight, 0.0, 1.0);
+    pbr.transmission_color     = clamp(pbr.transmission_color, vec3(0.0), vec3(1.0));
+    pbr.subsurface_weight      = clamp(pbr.subsurface_weight, 0.0, 1.0);
+    pbr.coat_weight            = clamp(pbr.coat_weight, 0.0, 1.0);
+    pbr.coat_roughness         = clamp(pbr.coat_roughness, 0.0, 1.0);
+    pbr.coat_darkening         = clamp(pbr.coat_darkening, 0.0, 1.0);
+    pbr.fuzz_weight            = clamp(pbr.fuzz_weight, 0.0, 1.0);
+    pbr.thin_film_weight       = clamp(pbr.thin_film_weight, 0.0, 1.0);
+    pbr.geometry_opacity       = clamp(pbr.geometry_opacity, 0.0, 1.0);
+
     pbr.specular_roughness = max(0.05, pbr.specular_roughness);
 
     OpenPBRLobeWeights W;

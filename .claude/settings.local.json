@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh pr view:*)",
+      "Bash(where:*)",
+      "Bash(cmd //c \"where gh\")",
+      "Read(//c//**)",
+      "Bash(export PATH:*)",
+      "Bash(gh:*)",
+      "Bash(curl:*)",
+      "Bash(npx:*)",
+      "Bash(export PATH=\"$PATH:/c/Program Files/GitHub CLI:/c/Program Files \\(x86\\)/GitHub CLI\")",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" pr view 255 --repo AcademySoftwareFoundation/OpenPBR)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:www.shadertoy.com)",
+      "Bash(python3:*)",
+      "Bash(\"/c/Program Files/ImageMagick-7.1.1-Q16-HDRI/magick\" identify ~/dev/usd_wg_assets/full_assets/StandardShaderBall/maps/uvgrid.exr)",
+      "Bash(\"/c/Program Files/ImageMagick-7.1.1-Q16-HDRI/magick\" ~/dev/usd_wg_assets/full_assets/StandardShaderBall/maps/uvgrid.exr -colorspace sRGB c:/Users/jamportz/dev/OpenPBR-viewer/public/textures/uvgrid.png)",
+      "Bash(node -e \":*)",
+      "Bash(magick identify /tmp/ground.ACEScg.exr)",
+      "Bash(magick /tmp/ground.ACEScg.exr -colorspace sRGB -resize 2048x2048 -depth 8 public/textures/ground.png)"
+    ]
+  }
+}

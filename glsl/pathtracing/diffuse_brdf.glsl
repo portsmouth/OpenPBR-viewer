@@ -1,3 +1,36 @@
+// Forward declarations for use in thin-walled functions
+vec3 diffuse_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL, inout float pdf_woutputL);
+float pdf_EON(in vec3 wo_local, in vec3 wi_local, float r);
+// Thin-walled subsurface: split into two diffuse lobes (reflection/transmission)
+// f^R_diffuse = 0.5 * S * (1-g) * f_+
+// f^T_diffuse = 0.5 * S * (1+g) * f_-
+// S = subsurface_color, g = subsurface_anisotropy
+
+vec3 thin_walled_subsurface_reflection(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL, inout float pdf_woutputL)
+{
+    // Reflection: both directions in same hemisphere
+    if (winputL.z < 0.0 || woutputL.z < 0.0) {
+        pdf_woutputL = 0.0;
+        return vec3(0.0);
+    }
+    float g = subsurface_anisotropy;
+    float weight = 0.5 * (1.0 - g);
+    pdf_woutputL = weight * pdf_EON(woutputL, winputL, base_diffuse_roughness);
+    return weight * subsurface_color * diffuse_brdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
+}
+
+vec3 thin_walled_subsurface_transmission(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 woutputL, inout float pdf_woutputL)
+{
+    // Transmission: directions in opposite hemispheres
+    if (winputL.z * woutputL.z > 0.0) {
+        pdf_woutputL = 0.0;
+        return vec3(0.0);
+    }
+    float g = subsurface_anisotropy;
+    float weight = 0.5 * (1.0 + g);
+    pdf_woutputL = weight * pdf_EON(woutputL, winputL, base_diffuse_roughness);
+    return weight * subsurface_color * diffuse_brdf_evaluate(pW, basis, winputL, woutputL, pdf_woutputL);
+}
 
 /* Implements:
 
@@ -171,8 +204,8 @@ vec3 diffuse_brdf_evaluate(in vec3 pW, in Basis basis, in vec3 winputL, in vec3 
                            inout float pdf_woutputL)
 {
     if (winputL.z < DENOM_TOLERANCE || woutputL.z < DENOM_TOLERANCE) return vec3(0.0f);
-    pdf_woutputL = pdf_EON(winputL, woutputL, base_roughness);
-    return f_EON(base_weight * base_color, base_roughness, winputL, woutputL, true);
+    pdf_woutputL = pdf_EON(winputL, woutputL, base_diffuse_roughness);
+    return f_EON(vec3(1.f), base_diffuse_roughness, winputL, woutputL, true);
 }
 
 vec3 diffuse_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed,
@@ -180,14 +213,14 @@ vec3 diffuse_brdf_sample(in vec3 pW, in Basis basis, in vec3 winputL, inout uint
 {
     if (winputL.z < DENOM_TOLERANCE) return vec3(0.0f);
     float u1 = rand(rndSeed); float u2 = rand(rndSeed);
-    vec4 wiP = sample_EON(winputL, base_roughness, u1, u2);
+    vec4 wiP = sample_EON(winputL, base_diffuse_roughness, u1, u2);
     woutputL     = wiP.xyz;
     pdf_woutputL = wiP.w;
-    return f_EON(base_weight * base_color, base_roughness, winputL, woutputL, true);
+    return f_EON(vec3(1.f), base_diffuse_roughness, winputL, woutputL, true);
 }
 
 vec3 diffuse_brdf_albedo(in vec3 pW, in Basis basis, in vec3 winputL, inout uint rndSeed)
 {
     if (winputL.z < DENOM_TOLERANCE) return vec3(0.0f);
-    return E_EON(base_weight * base_color, base_roughness, winputL, true);
+    return E_EON(vec3(1.f), base_diffuse_roughness, winputL, true);
 }

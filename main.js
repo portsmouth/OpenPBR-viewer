@@ -3,10 +3,11 @@
 import { Scene,
     Vector2, Vector3, Matrix4, Box3, Color,
     Mesh, MeshBasicMaterial, MeshStandardMaterial, MeshLambertMaterial, ShaderMaterial,
+    PlaneGeometry,
     PerspectiveCamera, OrthographicCamera,
     DirectionalLight, AmbientLight, DoubleSide,
     LinearSRGBColorSpace, SRGBColorSpace, RGBAFormat, FloatType,
-    WebGLRenderer, WebGLRenderTarget, TextureLoader,
+    WebGLRenderer, WebGLRenderTarget, TextureLoader, RepeatWrapping,
     EquirectangularReflectionMapping, CubeReflectionMapping,
     UniformsUtils, UniformsLib, ShaderLib,
     PCFSoftShadowMap, CameraHelper  } from 'three';
@@ -32,6 +33,7 @@ import glsl_pathtracing_metal_brdf      from './glsl/pathtracing/metal_brdf.glsl
 import glsl_pathtracing_specular_brdf   from './glsl/pathtracing/specular_brdf.glsl?raw'
 import glsl_pathtracing_specular_btdf   from './glsl/pathtracing/specular_btdf.glsl?raw'
 import glsl_pathtracing_diffuse_brdf    from './glsl/pathtracing/diffuse_brdf.glsl?raw'
+import glsl_pathtracing_diffuse_btdf    from './glsl/pathtracing/diffuse_btdf.glsl?raw'
 import glsl_pathtracing_openpbr_surface from './glsl/pathtracing/openpbr_surface.glsl?raw'
 import glsl_pathtracing_pathtracer      from './glsl/pathtracing/pathtracer.glsl?raw'
 
@@ -107,7 +109,7 @@ var params =
     smooth_normals:                     true,
     bounces:                            6,
     max_samples:                        512,
-    max_volume_steps:                   64,
+    max_volume_steps:                   8,
     wireframe:                          false,
     neutral_color:                      [0.99, 0.99, 0.99],
 
@@ -129,7 +131,7 @@ var params =
 
     base_weight:                         1.0,
     base_color:                          [0.8, 0.8, 0.8],
-    base_roughness:                      0.0,
+    base_diffuse_roughness:              0.0,
     base_metalness:                      0.0,
 
     specular_weight:                     1.0,
@@ -137,6 +139,9 @@ var params =
     specular_roughness:                  0.1,
     specular_anisotropy:                 0.0,
     specular_ior:                        1.5,
+    specular_haze:                       0.0,
+    specular_haze_spread:                0.3,
+    specular_retroreflectivity:          0.0,
 
     transmission_weight:                 0.0,
     transmission_color:                  [1.0, 1.0, 1.0],
@@ -163,6 +168,7 @@ var params =
     fuzz_color:                          [1.0, 1.0, 1.0],
     fuzz_roughness:                      0.5,
 
+    emission_weight:                     0.0,
     emission_luminance:                  0.0,
     emission_color:                      [1.0, 1.0, 1.0],
 
@@ -178,14 +184,13 @@ var params =
 };
 
 var materialDefines = {
-    BOUNCES:              params.bounces,
-    MAX_VOLUME_STEPS:     params.max_volume_steps,
-
     FUZZ_ENABLED:         true,
     COAT_ENABLED:         true,
     TRANSMISSION_ENABLED: true,
     VOLUME_ENABLED:       true,
-    THIN_FILM_ENABLED:    true
+    THIN_FILM_ENABLED:    true,
+    HAZE_ENABLED:         true,
+    RETRO_ENABLED:        true
 };
 
 var mesh_loader;
@@ -252,6 +257,8 @@ function coat_enabled()
 
 function volume_enabled()
 {
+    if (params.geometry_thin_walled)
+        return false;
     if (params.base_metalness == 1.0)
         return false;
     if (params.transmission_weight > 0.0 &&
@@ -278,6 +285,20 @@ function thin_film_enabled()
     return false;
 }
 
+function haze_enabled()
+{
+    if (params.specular_haze > 0.0)
+        return true;
+    return false;
+}
+
+function retro_enabled()
+{
+    if (params.specular_retroreflectivity > 0.0)
+        return true;
+    return false;
+}
+
 function create_materials()
 {
     renderer.outputColorSpace = LinearSRGBColorSpace;
@@ -291,13 +312,13 @@ function create_materials()
     if (pathtracedMaterial)
         pathtracedMaterial.dispose();
 
-    materialDefines.BOUNCES          = params.bounces;
-    materialDefines.MAX_VOLUME_STEPS = params.max_volume_steps;
     materialDefines.FUZZ_ENABLED         = fuzz_enabled();
     materialDefines.COAT_ENABLED         = coat_enabled();
     materialDefines.TRANSMISSION_ENABLED = transmission_enabled();
     materialDefines.VOLUME_ENABLED       = volume_enabled();
     materialDefines.THIN_FILM_ENABLED    = thin_film_enabled();
+    materialDefines.HAZE_ENABLED         = haze_enabled();
+    materialDefines.RETRO_ENABLED        = retro_enabled();
 
     if (!PATHTRACING)
     {
@@ -345,7 +366,7 @@ function create_materials()
 
                         base_weight:                         { value: params.base_weight },
                         base_color:                          { value: array_to_vector3(params.base_color) },
-                        base_roughness:                      { value: params.base_roughness },
+                        base_diffuse_roughness:              { value: params.base_diffuse_roughness },
                         base_metalness:                      { value: params.base_metalness },
 
                         specular_weight:                     { value: params.specular_weight, },
@@ -353,6 +374,9 @@ function create_materials()
                         specular_roughness:                  { value: params.specular_roughness },
                         specular_anisotropy:                 { value: params.specular_anisotropy },
                         specular_ior:                        { value: params.specular_ior  },
+                        specular_haze:                       { value: params.specular_haze },
+                        specular_haze_spread:                { value: params.specular_haze_spread },
+                        specular_retroreflectivity:          { value: params.specular_retroreflectivity },
 
                         transmission_weight:                 { value: params.transmission_weight, },
                         transmission_color:                  { value: array_to_vector3(params.transmission_color) },
@@ -379,6 +403,7 @@ function create_materials()
                         fuzz_color:                          { value: array_to_vector3(params.fuzz_color) },
                         fuzz_roughness:                      { value: params.fuzz_roughness },
 
+                        emission_weight:                     { value: params.emission_weight },
                         emission_luminance:                  { value: params.emission_luminance },
                         emission_color:                      { value: array_to_vector3(params.emission_color) },
 
@@ -481,6 +506,8 @@ function create_materials()
                 has_normals_props:     { value: 1 },
                 has_tangents_props:    { value: 0 },
 
+                ground_texture:        { value: null },
+
                 cameraWorldMatrix:     { value: new Matrix4() },
                 invProjectionMatrix:   { value: new Matrix4() },
                 invModelMatrix:        { value: new Matrix4() },
@@ -496,6 +523,8 @@ function create_materials()
                 wireframe:                           { value: params.wireframe, },
                 neutral_color:                       { value: new Vector3().fromArray(params.neutral_color) },
                 smooth_normals:                      { value: params.smooth_normals, },
+                bounces:                             { value: params.bounces },
+                max_volume_steps:                    { value: params.max_volume_steps },
 
                 //////////////////////////////////////////////////////
                 // lighting
@@ -515,7 +544,7 @@ function create_materials()
 
                 base_weight:                         { value: params.base_weight },
                 base_color:                          { value: array_to_vector3(params.base_color) },
-                base_roughness:                      { value: params.base_roughness },
+                base_diffuse_roughness:              { value: params.base_diffuse_roughness },
                 base_metalness:                      { value: params.base_metalness },
 
                 specular_weight:                     { value: params.specular_weight, },
@@ -523,6 +552,9 @@ function create_materials()
                 specular_roughness:                  { value: params.specular_roughness },
                 specular_anisotropy:                 { value: params.specular_anisotropy },
                 specular_ior:                        { value: params.specular_ior  },
+                specular_haze:                       { value: params.specular_haze },
+                specular_haze_spread:                { value: params.specular_haze_spread },
+                specular_retroreflectivity:          { value: params.specular_retroreflectivity },
 
                 transmission_weight:                 { value: params.transmission_weight, },
                 transmission_color:                  { value: array_to_vector3(params.transmission_color) },
@@ -549,6 +581,7 @@ function create_materials()
                 fuzz_color:                          { value: array_to_vector3(params.fuzz_color) },
                 fuzz_roughness:                      { value: params.fuzz_roughness },
 
+                emission_weight:                     { value: params.emission_weight },
                 emission_luminance:                  { value: params.emission_luminance },
                 emission_color:                      { value: array_to_vector3(params.emission_color) },
 
@@ -593,6 +626,7 @@ function create_materials()
                         + glsl_pathtracing_specular_btdf
                         + glsl_pathtracing_metal_brdf
                         + glsl_pathtracing_diffuse_brdf
+                        + glsl_pathtracing_diffuse_btdf
                         + glsl_pathtracing_openpbr_surface
                         + glsl_pathtracing_pathtracer
 
@@ -658,6 +692,15 @@ function init()
     renderer.shadowMapSoft = true;
     renderer.shadowMap.type = PCFSoftShadowMap; // default THREE.PCFShadowMap
     renderer.physicallyBasedShading = true;
+
+    // Enable parallel shader compilation if available
+    const gl = renderer.getContext();
+    const parallelShaderCompileExt = gl.getExtension('KHR_parallel_shader_compile');
+    if (parallelShaderCompileExt) {
+        console.log('Parallel shader compilation enabled');
+    } else {
+        console.log('Parallel shader compilation not supported - shader compilation may be slow');
+    }
 
     document.body.appendChild( renderer.domElement );
 
@@ -792,6 +835,32 @@ function load_geometry(scene_name)
                 console.log("===> LOADED");
             }
 
+            // Ground plane texture
+            const groundTexLoader = new TextureLoader();
+            const groundTex = groundTexLoader.load('textures/ground.png');
+            groundTex.wrapS = RepeatWrapping;
+            groundTex.wrapT = RepeatWrapping;
+            groundTex.colorSpace = SRGBColorSpace;
+
+            if (!PATHTRACING)
+            {
+                // Rasterizer: add ground plane mesh
+                groundTex.repeat.set(2, 2);
+                groundTex.offset.set(0.5, 0.5);
+                const groundGeom = new PlaneGeometry(200, 200);
+                const groundMat = new MeshLambertMaterial({ map: groundTex, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+                const groundMesh = new Mesh(groundGeom, groundMat);
+                groundMesh.rotation.x = -Math.PI / 2;
+                groundMesh.position.y = 0.01;
+                groundMesh.receiveShadow = true;
+                scene.add(groundMesh);
+            }
+            else
+            {
+                // Pathtracer: pass texture as uniform (UV mapping done in shader)
+                pathtracedMaterial.uniforms.ground_texture.value = groundTex;
+            }
+
             LOADED = true;
 
             post_load_setup();
@@ -910,7 +979,7 @@ function setup_gui()
     const base_folder = material_folder.addFolder('Base');
     base_folder.add(params,          'base_weight', 0.0, 1.0).onChange(                               v => { resetSamples(); });
     base_folder.addColor(params,     'base_color').onChange(                                          v => { resetSamples(); });
-    base_folder.add(params,          'base_roughness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
+    base_folder.add(params,          'base_diffuse_roughness', 0.0, 1.0).onChange(                    v => { resetSamples(); });
     base_folder.add(params,          'base_metalness', 0.0, 1.0).onChange(                            v => { resetSamples(); });
 
     // Specular folder
@@ -920,6 +989,9 @@ function setup_gui()
     specular_folder.add(params,      'specular_roughness', 0.0, 1.0).onChange(                        v => { resetSamples(); });
     specular_folder.add(params,      'specular_ior', 1.0, 5.0).onChange(                              v => { resetSamples(); });
     specular_folder.add(params,      'specular_anisotropy', 0.0, 1.0).onChange(                       v => { resetSamples(); });
+    specular_folder.add(params,      'specular_haze', 0.0, 1.0).onChange(                            v => { resetSamples(); });
+    specular_folder.add(params,      'specular_haze_spread', 0.0, 1.0).onChange(                     v => { resetSamples(); });
+    specular_folder.add(params,      'specular_retroreflectivity', 0.0, 1.0).onChange(               v => { resetSamples(); });
 
     // Transmission folder
     const transmission_folder = material_folder.addFolder('Transmission');
@@ -960,6 +1032,7 @@ function setup_gui()
 
     // Emission folder
     const emission_folder = material_folder.addFolder('Emission');
+    emission_folder.add(params,          'emission_weight', 0.0, 1.0).onChange(                       v => { resetSamples(); });
     emission_folder.add(params,          'emission_luminance', 0.0, 10.0).onChange(                   v => { resetSamples(); });
     emission_folder.addColor(params,     'emission_color').onChange(                                  v => { resetSamples(); });
     emission_folder.close();
@@ -994,11 +1067,9 @@ function setup_gui()
     renderer_folder.add( params, 'smooth_normals' ).onChange(                                         v => { resetSamples(); });
     renderer_folder.add( params, 'wireframe' ).onChange(                                              v => { resetSamples(); });
     renderer_folder.addColor(params, 'neutral_color').onChange(                                       v => { resetSamples(); });
-    renderer_folder.add( params, 'bounces', 0, 100, 1 ).onChange(                                     v => { materialDefines.BOUNCES = parseInt( v );
-                                                                                                             load_scene(params.scene_name); } );
+    renderer_folder.add( params, 'bounces', 0, 100, 1 ).onChange(                                     v => { resetSamples(); } );
     renderer_folder.add( params, 'max_samples' ).onChange(                                            v => { load_scene(params.scene_name); });
-    renderer_folder.add( params, 'max_volume_steps', 1, 100, 1 ).onChange(                            v => { materialDefines.MAX_VOLUME_STEPS = parseInt( v );
-                                                                                                             load_scene(params.scene_name); } );
+    renderer_folder.add( params, 'max_volume_steps', 1, 100, 1 ).onChange(                            v => { resetSamples(); } );
     renderer_folder.close();
 
     gui.add( params, 'reset_camera' );
@@ -1087,14 +1158,28 @@ function trigger_recompile()
 {
     let tmp_cam = new OrthographicCamera( - 1, 1, 1, - 1, 0, 1 );
     startCompilationProgress();
-    let compile_promise = renderer.compileAsync(scene, tmp_cam);
-    compile_promise.then((val) => {
+
+    let promises = [renderer.compileAsync(scene, tmp_cam)];
+
+    // FullScreenQuad meshes aren't in the scene, so compile them separately
+    if (PATHTRACING && pathtracedQuad) {
+        promises.push(renderer.compileAsync(pathtracedQuad._mesh, tmp_cam));
+    }
+
+    Promise.all(promises).then(() => {
         console.log('shaders successfully compiled.');
+        // Warm-up render to flush any remaining GPU pipeline stalls
+        if (PATHTRACING && pathtracedQuad && pathtracingRenderTarget) {
+            renderer.setRenderTarget(pathtracingRenderTarget);
+            pathtracedQuad.render(renderer);
+            renderer.setRenderTarget(null);
+            resetSamples();
+        }
         finishCompilationProgress();
     }).catch((err) => {
         console.log('shader compilation error: ' + err);
-    }).finally(() => {});
-    }
+    });
+}
 
 function startCompilationProgress()
 {
@@ -1137,19 +1222,18 @@ function resetSamples()
 {
     samples = 0;
 
-    if (PATHTRACING)
+    let reload = false;
+    reload = reload || (materialDefines.FUZZ_ENABLED         != fuzz_enabled());
+    reload = reload || (materialDefines.COAT_ENABLED         != coat_enabled());
+    reload = reload || (materialDefines.TRANSMISSION_ENABLED != transmission_enabled());
+    reload = reload || (materialDefines.VOLUME_ENABLED       != volume_enabled());
+    reload = reload || (materialDefines.THIN_FILM_ENABLED    != thin_film_enabled());
+    reload = reload || (materialDefines.HAZE_ENABLED         != haze_enabled());
+    reload = reload || (materialDefines.RETRO_ENABLED        != retro_enabled());
+    if (reload)
     {
-        let reload = false;
-        reload = reload || (materialDefines.FUZZ_ENABLED         != fuzz_enabled());
-        reload = reload || (materialDefines.COAT_ENABLED         != coat_enabled());
-        reload = reload || (materialDefines.TRANSMISSION_ENABLED != transmission_enabled());
-        reload = reload || (materialDefines.VOLUME_ENABLED       != volume_enabled());
-        reload = reload || (materialDefines.THIN_FILM_ENABLED    != thin_film_enabled());
-        if (reload)
-        {
-            load_scene(params.scene_name);
-            trigger_recompile();
-        }
+        load_scene(params.scene_name);
+        trigger_recompile();
     }
 }
 
@@ -1189,11 +1273,13 @@ function sync_shader_uniforms(uniforms)
     uniforms.wireframe.value                              = params.wireframe;
     uniforms.neutral_color.value.copy(get_vector3(          params.neutral_color));
     uniforms.smooth_normals.value                         = params.smooth_normals;
+    if (uniforms.bounces)           uniforms.bounces.value           = params.bounces;
+    if (uniforms.max_volume_steps)  uniforms.max_volume_steps.value  = params.max_volume_steps;
 
     // sync material params
     uniforms.base_weight.value                            = params.base_weight;
     uniforms.base_color.value.copy(get_vector3(             params.base_color));
-    uniforms.base_roughness.value                         = params.base_roughness;
+    uniforms.base_diffuse_roughness.value                 = params.base_diffuse_roughness;
     uniforms.base_metalness.value                         = params.base_metalness;
 
     uniforms.specular_weight.value                        = params.specular_weight;
@@ -1201,6 +1287,9 @@ function sync_shader_uniforms(uniforms)
     uniforms.specular_roughness.value                     = params.specular_roughness;
     uniforms.specular_anisotropy.value                    = params.specular_anisotropy;
     uniforms.specular_ior.value                           = params.specular_ior;
+    uniforms.specular_haze.value                          = params.specular_haze;
+    uniforms.specular_haze_spread.value                   = params.specular_haze_spread;
+    uniforms.specular_retroreflectivity.value              = params.specular_retroreflectivity;
 
     uniforms.transmission_weight.value                    = params.transmission_weight;
     uniforms.transmission_color.value.copy(get_vector3(     params.transmission_color));
@@ -1227,6 +1316,7 @@ function sync_shader_uniforms(uniforms)
     uniforms.fuzz_color.value.copy(get_vector3(             params.fuzz_color));
     uniforms.fuzz_roughness.value                         = params.fuzz_roughness;
 
+    uniforms.emission_weight.value                        = params.emission_weight;
     uniforms.emission_luminance.value                     = params.emission_luminance;
     uniforms.emission_color.value.copy(get_vector3(         params.emission_color));
 
@@ -1315,11 +1405,11 @@ function render()
                                           MESH_PROPS.position.z + dL*params.sunDir[2]);
             directionalLight.intensity = Math.pow(10.0, params.sunPower);
             let sunColor3 = new Color(params.sunColor[0], params.sunColor[1], params.sunColor[2]);
-            directionalLight.color = sunColor3.getHex();
+            directionalLight.color.copy(sunColor3);
             directionalLight.updateMatrix();
 
             let skyColor3 = new Color(params.skyColor[0], params.skyColor[1], params.skyColor[2]);
-            ambientLight.color = skyColor3.getHex();
+            ambientLight.color.copy(skyColor3);
             ambientLight.intensity = params.skyPower;
 
             renderer.shadowMap.needsUpdate = true;

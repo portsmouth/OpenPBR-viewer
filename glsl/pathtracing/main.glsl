@@ -26,6 +26,8 @@ uniform bool has_tangents_surface;
 uniform bool has_normals_props;
 uniform bool has_tangents_props;
 
+uniform sampler2D ground_texture;
+
 //////////////////////////////////////////////////////
 // renderer uniforms
 //////////////////////////////////////////////////////
@@ -35,6 +37,8 @@ uniform float samples;
 uniform bool wireframe;
 uniform vec3 neutral_color;
 uniform bool smooth_normals;
+uniform int bounces;
+uniform int max_volume_steps;
 
 //////////////////////////////////////////////////////
 // material uniforms
@@ -42,7 +46,7 @@ uniform bool smooth_normals;
 
 uniform float base_weight;
 uniform vec3  base_color;
-uniform float base_roughness;
+uniform float base_diffuse_roughness;
 uniform float base_metalness;
 
 uniform float specular_weight;
@@ -50,6 +54,9 @@ uniform vec3  specular_color;
 uniform float specular_roughness;
 uniform float specular_anisotropy;
 uniform float specular_ior;
+uniform float specular_haze;
+uniform float specular_haze_spread;
+uniform float specular_retroreflectivity;
 
 uniform float transmission_weight;
 uniform vec3  transmission_color;
@@ -80,6 +87,7 @@ uniform float thin_film_weight;
 uniform float thin_film_thickness;
 uniform float thin_film_ior;
 
+uniform float emission_weight;
 uniform float emission_luminance;
 uniform vec3  emission_color;
 
@@ -138,6 +146,7 @@ const float FLT_EPSILON           = 1.1920929e-7;
 // material indices
 const int MATERIAL_PROPS   = 0;
 const int MATERIAL_OPENPBR = 1;
+const int MATERIAL_GROUND  = 2;
 
 //////////////////////////////////////////////////////
 // utils
@@ -368,112 +377,54 @@ float FresnelDielectricReflectance(in float mui, in float eta_ti)
     return 0.5 * sqr((g-c)/(g+c)) * (1.0 + sqr(((g+c)*c-1.0)/((g-c)*c+1.0)));
 }
 
-//  specular_weight (>= 0) modulates the Fresnel F0 linearly
+// PR #247 (https://github.com/AcademySoftwareFoundation/OpenPBR/pull/247):
+// specular_weight (>= 0) modulates the Fresnel F0 linearly, without disturbing refraction (decoupled IOR)
 float FresnelDielectricReflectanceModulated(in float mui, in float eta_ti)
 {
-    float etam1 = 1.0 - eta_ti;
+    float etam1 = eta_ti - 1.0;
     float etam1sqr = sqr(etam1);
     if (etam1sqr < FLT_EPSILON) return 0.0;
-    if (specular_weight != 1.f)
+    if (specular_weight != 1.0)
     {
-        // Compute modified IOR ratio
+        // Compute modified IOR ratio (modulates F0 by specular_weight)
         float F0 = etam1sqr / sqr(1.0+eta_ti);
-        float tmp = sign(etam1) * clamp(specular_weight * F0, FLT_EPSILON, 1.0);
-        float eta_ti_prime = (1.0 + tmp) / max(1.0 - tmp, DENOM_TOLERANCE);
-        if (eta_ti_prime >= 1.f) // (No TIR possible)
-            eta_ti = eta_ti_prime;
+        float epsilon = sign(etam1) * sqrt(clamp(specular_weight * F0, 0.0, 1.0));
+        float eta_ti_prime = (1.0 + epsilon) / max(1.0 - epsilon, DENOM_TOLERANCE);
+
+        if (eta_ti_prime >= 1.0) // (No TIR possible)
+        {
+            // Directly use modulated IOR
+            return FresnelDielectricReflectance(mui, eta_ti_prime);
+        }
         else
         {
-            // In the possible-TIR case, check for TIR and if not, use the "un-squeezed" Fresnel curve.
-            float mu2_t = 1.f - (1.f - sqr(mui))/sqr(eta_ti);
-            if (mu2_t <= FLT_EPSILON)
-                return 1.f; // (TIR occurs)
-            mui = sqrt(mu2_t);
-            eta_ti = 1.f/eta_ti;
+            // TIR is possible - use Stokes reciprocity to maintain energy conservation
+            // Check for TIR using the *unmodified* IOR (refraction direction unchanged)
+            float mu2_t = 1.0 - (1.0 - sqr(mui))/sqr(eta_ti);
+            if (mu2_t <= 0.0)
+                return 1.0; // (TIR occurs)
+            // Use "squeezed" Fresnel curve at the refracted angle with modulated IOR
+            float mu_t = sqrt(mu2_t);
+            return FresnelDielectricReflectance(mu_t, 1.0/eta_ti_prime);
         }
     }
     return FresnelDielectricReflectance(mui, eta_ti);
 }
-
-#ifdef THIN_FILM_ENABLED
-
-// mui     = magnitude of the cosine of the incident ray angle to the micronormal
-// eta_ti  = ratio et/ei of the transmitted IOR (et) and incident IOR (ei)
-// Outputs vec2(rs, rp), the real amplitude (and sign) of the S, P polarized reflection (where squared amplitudes give reflectance).
-vec2 FresnelDielectricReflectionPolarizations(float mui, float eta_ti)
-{
-    float mut2 = sqr(eta_ti) - (1.0 - sqr(mui));
-    if (mut2 <= 0.0) return vec2(1.0, 1.0); // (total internal reflection)
-    float mut = sqrt(mut2) / eta_ti;
-    float rs = (mui - eta_ti*mut) / (mui + eta_ti*mut);
-    float rp = (eta_ti*mui - mut) / (mut + eta_ti*mui);
-    return vec2(rs, rp);
-}
-
-// mui     = magnitude of the cosine of the incident ray angle to the micronormal
-// eta_ti  = ratio et/ei of the transmitted IOR (et) and incident IOR (ei)
-// Outputs vec2(rs, rp),  the real amplitude (and sign) of the S, P polarized transmission (where squared amplitudes give transmittance).
-vec2 FresnelDielectricTransmissionPolarizations(float mui, float eta_ti)
-{
-    float mut2 = sqr(eta_ti) - (1.0 - sqr(mui));
-    if (mut2 <= 0.0) return vec2(0.0, 0.0); // (total internal reflection)
-    float mut = sqrt(mut2) / eta_ti;
-    float ts = 2.0 * mui / (mui + eta_ti*mut);
-    float tp = 2.0 * mui / (mut + eta_ti*mui);
-    return vec2(ts, tp);
-}
-
-// Returns the complex Fresnel reflection coefficient,
-// at an interface between pure dielectric d, and conductor c
-// for the two polarizations:
-//    - rab_perp: complex reflection coefficient for s (perpendicular) polarization
-//    - rab_para: complex reflection coefficient for p (parallel) polarization
-// given:
-//    - mu_d:  angle cosine of incidence in dielectric d
-//    - eta_d: IOR of dielectric d              (i.e. real  part of complex IOR)
-//    - eta_c: IOR of conductor c               (i.e. real  part of complex IOR)
-//    - k_c:   absorption coeff. of conductor c (i.e. imag. part of complex IOR)
-void FresnelConductorReflectionPolarizations(float mu_d, float eta_d, float eta_c, float k_c,
-                                             inout vec2 rab_perp, inout vec2 rab_para)
-{
-    float sintheta_d_sqr = 1.0 - mu_d * mu_d;
-    float U = sqr(eta_c) - sqr(k_c) - sqr(eta_d)*sintheta_d_sqr;
-    float V2 = sqr(U) + 4.0*sqr(k_c*eta_c);
-    float V = sqrt(V2);
-    float ub = sqrt(U+V)/sqrt(2.0);
-    float vb = sqrt(V-U)/sqrt(2.0);
-
-    // perp. polarization
-    float rab_perp_mag        = sqrt((sqr(eta_d*mu_d - ub) + sqr(vb)) / (sqr(eta_d*mu_d + ub) + sqr(vb)));
-    float tanphiab_perp_numer = 2.0*vb*eta_d*mu_d;
-    float tanphiab_perp_denom = sqr(ub) + sqr(vb) - sqr(eta_d*mu_d);
-    float phiab_perp          = atan(tanphiab_perp_numer, tanphiab_perp_denom);
-    rab_perp                  = rab_perp_mag * vec2(cos(phiab_perp), sin(phiab_perp));
-
-    // parallel. polarization
-    float rab_para_numer      = sqr((sqr(eta_c) - sqr(k_c))*mu_d - eta_d*ub) + sqr(2.0*eta_c*k_c*mu_d - eta_d*vb);
-    float rab_para_denom      = sqr((sqr(eta_c) - sqr(k_c))*mu_d + eta_d*ub) + sqr(2.0*eta_c*k_c*mu_d + eta_d*vb);
-    float rab_para_mag        = sqrt(rab_para_numer / rab_para_denom);
-    float tanphiab_para_numer = 2.0*eta_d*mu_d * (2.0*eta_c*k_c*ub - (sqr(eta_c) - sqr(k_c))*vb);
-    float tanphiab_para_denom = sqr(sqr(eta_c) + sqr(k_c))*sqr(mu_d) - sqr(eta_d)*(sqr(ub) + sqr(vb));
-    float phiab_para          = atan(tanphiab_para_numer, tanphiab_para_denom);
-    rab_para                  = rab_para_mag * vec2(cos(phiab_para), sin(phiab_para));
-}
-
-#endif // THIN_FILM_ENABLED
 
 vec3 FresnelSchlick(vec3 F0, float mu)
 {
     return F0 + pow(1.0 - mu, 5.0)*(vec3(1.0) - F0);
 }
 
+// PR #256 (https://github.com/AcademySoftwareFoundation/OpenPBR/pull/256):
+// Clamp result to [0, 1] to prevent negative values from F82 tint
 vec3 FresnelF82Tint(float mu, in vec3 F0, in vec3 F82tint)
 {
     const float mu_bar = 1.0/7.0;
     const float denom = mu_bar * pow(1.0 - mu_bar, 6.0);
     vec3 Fschlick_bar = FresnelSchlick(F0, mu_bar);
     vec3 Fschlick     = FresnelSchlick(F0, mu);
-    return Fschlick - mu * pow(1.0 - mu, 6.0) * (vec3(1.0) - F82tint) * Fschlick_bar / denom;
+    return clamp(Fschlick - mu * pow(1.0 - mu, 6.0) * (vec3(1.0) - F82tint) * Fschlick_bar / denom, vec3(0.0), vec3(1.0));
 }
 
 // Hemispherical (average) albedo of dielectric Fresnel factor
@@ -609,7 +560,7 @@ float luminance_srgb(in vec3 C)
     return 0.2126*C.r + 0.7152*C.g + 0.0722*C.b;
 }
 
-#ifdef TRANSMISSION_ENABLED
+#if defined(TRANSMISSION_ENABLED) || defined(THIN_FILM_ENABLED)
 // Spectrum to XYZ approx function from Sloan: http://jcgt.org/published/0002/02/01/paper.pdf
 // Inputs:  Wavelength in nanometers
 float xFit_1931(float w)
@@ -640,4 +591,9 @@ vec3 xyzToRgb(vec3 XYZ)
 	                  -0.969256 , 1.875991,  0.041556,
 	                   0.055648, -0.204043,  1.057311);
 }
+
+// Spectral normalization constant: chosen so that E[xyzToRgb(xyzFit_1931(λ)) * SPECTRAL_NORM] ≈ (1,1,1)
+// for uniform λ sampling over [360, 700] nm
+const vec3 SPECTRAL_NORM = vec3(2.7, 3.3, 3.45);
+
 #endif
