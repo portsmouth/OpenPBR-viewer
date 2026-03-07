@@ -4,6 +4,8 @@
 
 Updating the OpenPBR-viewer (WebGL pathtracer + rasterizer) to fully support OpenPBR v1.2 spec.
 Full plan at: `.claude/plans/refactored-juggling-snowglobe.md`
+Reference document: `~/dev/light_transport/s2025_openpbr/arxiv/course_notes.tex`
+Reference code: `~/dev/light_transport/s2025_openpbr/arxiv/code/`
 
 ## Completed Work
 
@@ -13,8 +15,10 @@ Full plan at: `.claude/plans/refactored-juggling-snowglobe.md`
 - Proper CDF lobe selection, per-lobe sampling, MIS PDF computation, throughput calculation
 
 ### Phase 2: Merged v1.2 PRs
-- **2.1 PR #253** — Coat darkening luminance fix (preserves chromaticity with colored coats)
+- **2.1 PR #253** — Coat darkening fix
   - Files: `openpbr_surface.glsl`, `openpbr.frag.glsl`
+  - Corrected to match reference `coat_darkening.cpp`: `base_darkening = mix(1, Delta, coat_darkening)` with `Delta = max(1-K,0) / (1 - E_base*K*coat_color)`
+  - Rasterizer was also missing `coat_color` in Delta denominator — fixed
 - **2.2 PR #256** — Clamp negative metallic Fresnel (`FresnelF82Tint` / `FresnelConductorF82`)
   - Files: `main.glsl`, `openpbr.frag.glsl`
 - **2.3 PR #277** — Input parameter clamping per spec section 4
@@ -45,9 +49,26 @@ Full plan at: `.claude/plans/refactored-juggling-snowglobe.md`
   - Spectral weight at path start: `throughput *= xyzToRgb(xyzFit_1931(wavelength_nm)) * SPECTRAL_NORM`
   - Guard against double spectral weight when both thin-film and dispersion active
 
+### Ground plane
+- Added textured ground plane to pathtracer matching the rasterizer's existing ground mesh
+- Analytical ray-plane intersection in `pathtracer.glsl` `trace()`
+- Ground BRDF (Lambertian with texture lookup) in `pathtracer.glsl`
+- UV mapping: `vec2(pW.x, -pW.z) / 200.0 * 2.0 + 0.5` to match rasterizer's PlaneGeometry repeat/offset
+- Ground texture upgraded to 7500x7500 from USD-WG StandardShaderBall asset (ACEScg EXR → sRGB PNG)
+
+### Shader compilation improvements
+- **Async compilation fix:** `trigger_recompile()` now compiles FullScreenQuad material via `renderer.compileAsync(pathtracedQuad._mesh, tmp_cam)` — prevents browser freeze
+- **Warm-up render:** Added post-compilation warm-up render to flush GPU pipeline stalls
+- **Loop bounds as uniforms:** Converted `BOUNCES` and `MAX_VOLUME_STEPS` from `#define` to `uniform int` — changing these in GUI no longer triggers recompilation
+- **BVH stack reduced:** `stack[60]` → `stack[32]` in `pathtracer.glsl` (32 levels supports ~4B leaves)
+
 ### Other fixes
 - **Coat BRDF DV denominator:** Added `abs()` on denominator in `coat_brdf_evaluate` (line 49)
 - **PR hyperlinks:** Added full GitHub URLs for PRs #247, #253, #256, #277, #286 across all modified files
+
+### Git repo cleanup
+- Removed accidentally committed `OpenPBR/` submodule from history via `git filter-repo`
+- Removed large env maps (etzwihl_16k.hdr, metro_vijzelgracht_16k.hdr/.png) from history
 
 ## Remaining Work
 
@@ -82,6 +103,8 @@ Full plan at: `.claude/plans/refactored-juggling-snowglobe.md`
 - **Thin-film API:** `FresnelThinFilmOverDielectric(mui, eta_fe)` / `FresnelThinFilmOverConductor(mui, eta_fe)` — both return vec3
 - **`#ifdef` guards:** `THIN_FILM_ENABLED`, `TRANSMISSION_ENABLED`, `SUBSURFACE_ENABLED` controlled by `main.js`
 - **Rasterizer uses struct-based approach:** `OpenPBRMaterial pbr` passed to all functions; pathtracer uses global uniforms directly
+- **Coat darkening reference:** `~/dev/light_transport/s2025_openpbr/arxiv/code/coat_darkening.cpp`
+- **coat_color = T²_coat:** The square of coat transmittance at normal incidence. absorb_tint = pow(coat_color, 0.5*(1/μᵢ + 1/μₒ))
 
 ## Known Issues
 

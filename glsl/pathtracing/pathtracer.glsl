@@ -620,6 +620,9 @@ void main()
         vec3 winputW = -dW; // winputW, points *towards* the incident direction (parallel to photon)
         vec3 winputL = worldToLocal(winputW, basis);
 
+        // Skip shading if view direction is nearly tangent to the surface (avoids fireflies with flat normals)
+        if (winputL.z < 1.0e-3) break;
+
         // Prepare OpenPBR if that material is used at the current vertex
         bool thin_walled = false;
         if (material == MATERIAL_OPENPBR)
@@ -636,6 +639,9 @@ void main()
             vec3 f = sampleBsdf(pW, basis, winputL, rndSeed, material, woutputL, bsdfPdf_continuation, internal_medium);
             vec3 woutputW = localToWorld(woutputL, basis);
             surface_throughput = f / max(PDF_EPSILON, bsdfPdf_continuation) * abs(dot(woutputW, basis.nW));
+            // Clamp to prevent fireflies from extreme BSDF values (e.g. grazing microfacets on flat normals)
+            float maxComp = maxComponent(surface_throughput);
+            if (maxComp > firefly_clamp) surface_throughput *= firefly_clamp / maxComp;
             dW = woutputW; // Update continuation ray direction to the BSDF-sampled direction
         }
 
@@ -687,7 +693,10 @@ void main()
                 float bsdfPdf_shadow = PDF_EPSILON;
                 vec3 fshadow = evaluateBsdf(pW, basis, winputL, shadowL, material, bsdfPdf_shadow);
                 float misWeightLight = powerHeuristic(lightPdf, bsdfPdf_shadow);
-                L += throughput * misWeightLight * fshadow * abs(dot(shadowW, basis.nW)) * Li / max(PDF_EPSILON, lightPdf);
+                vec3 Ld = misWeightLight * fshadow * abs(dot(shadowW, basis.nW)) * Li / max(PDF_EPSILON, lightPdf);
+                float maxLd = maxComponent(Ld);
+                if (maxLd > firefly_clamp) Ld *= firefly_clamp / maxLd;
+                L += throughput * Ld;
             }
         } // direct lighting
 

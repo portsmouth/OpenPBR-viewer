@@ -1,17 +1,26 @@
 # OpenPBR-viewer
-An example implementation of the [OpenPBR Surface](https://github.com/AcademySoftwareFoundation/OpenPBR) shading model in a simple WebGL  pathtracer. This is intended as an example of an "as simple as possible" implementation from scratch. Note, it is still a work-in-progress, so still missing some features.
+An example implementation of the [OpenPBR Surface](https://github.com/AcademySoftwareFoundation/OpenPBR) shading model in a WebGL pathtracer and rasterizer. Includes support for the full OpenPBR v1.2 spec: coat darkening, thin-film iridescence, spectral dispersion, subsurface scattering, fuzz, and more.
 
 Run the live app [here](https://portsmouth.github.io/OpenPBR-viewer).
 
+## Running locally
 
-
-To build locally, install [npm](https://www.npmjs.com/) and run:
+Install [npm](https://www.npmjs.com/), then:
 
     npm install
+
+**Development** (with hot-reload):
+
+    npx vite
+
+Then open http://localhost:5173/OpenPBR-viewer in your browser.
+
+**Production build**:
+
     npm run build
     npm run preview
 
-And navigate in a browser to http://localhost:8080/OpenPBR-viewer.
+Then open http://localhost:8080/OpenPBR-viewer in your browser.
 
 <img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/metal2.png" width="49%"> <img src="https://github.com/portsmouth/OpenPBR-viewer/blob/main/images/absorption.png" width="49%">
 

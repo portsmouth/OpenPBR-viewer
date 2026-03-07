@@ -110,6 +110,7 @@ var params =
     bounces:                            6,
     max_samples:                        512,
     max_volume_steps:                   8,
+    firefly_clamp:                      10.0,
     wireframe:                          false,
     neutral_color:                      [0.99, 0.99, 0.99],
 
@@ -250,32 +251,17 @@ function fuzz_enabled()
 
 function coat_enabled()
 {
-    if (params.coat_weight == 0.0)
-        return false;
     return true;
 }
 
 function volume_enabled()
 {
-    if (params.geometry_thin_walled)
-        return false;
-    if (params.base_metalness == 1.0)
-        return false;
-    if (params.transmission_weight > 0.0 &&
-        params.transmission_depth > 0.0)
-        return true;
-    if (params.subsurface_weight > 0.0)
-        return true;
-    return false;
+    return true;
 }
 
 function transmission_enabled()
 {
-    if (params.transmission_weight > 0.0)
-        return true;
-    if (params.subsurface_weight > 0.0)
-        return true;
-    return false;
+    return true;
 }
 
 function thin_film_enabled()
@@ -525,6 +511,7 @@ function create_materials()
                 smooth_normals:                      { value: params.smooth_normals, },
                 bounces:                             { value: params.bounces },
                 max_volume_steps:                    { value: params.max_volume_steps },
+                firefly_clamp:                       { value: params.firefly_clamp },
 
                 //////////////////////////////////////////////////////
                 // lighting
@@ -1070,6 +1057,7 @@ function setup_gui()
     renderer_folder.add( params, 'bounces', 0, 100, 1 ).onChange(                                     v => { resetSamples(); } );
     renderer_folder.add( params, 'max_samples' ).onChange(                                            v => { load_scene(params.scene_name); });
     renderer_folder.add( params, 'max_volume_steps', 1, 100, 1 ).onChange(                            v => { resetSamples(); } );
+    renderer_folder.add( params, 'firefly_clamp', 1, 1000 ).onChange(                                v => { resetSamples(); } );
     renderer_folder.close();
 
     gui.add( params, 'reset_camera' );
@@ -1275,6 +1263,7 @@ function sync_shader_uniforms(uniforms)
     uniforms.smooth_normals.value                         = params.smooth_normals;
     if (uniforms.bounces)           uniforms.bounces.value           = params.bounces;
     if (uniforms.max_volume_steps)  uniforms.max_volume_steps.value  = params.max_volume_steps;
+    if (uniforms.firefly_clamp)     uniforms.firefly_clamp.value     = params.firefly_clamp;
 
     // sync material params
     uniforms.base_weight.value                            = params.base_weight;

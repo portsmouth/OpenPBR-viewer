@@ -39,6 +39,7 @@ uniform vec3 neutral_color;
 uniform bool smooth_normals;
 uniform int bounces;
 uniform int max_volume_steps;
+uniform float firefly_clamp;
 
 //////////////////////////////////////////////////////
 // material uniforms
@@ -433,7 +434,7 @@ float E_F(float eta)
     return log((10893.0*eta - 1438.2)/(-774.4*sqr(eta) + 10212.0*eta + 1.0));
 }
 
-float average_dielectric_fresnel(float eta)
+float DielectricFresnelAvg(float eta)
 {
     if      (eta > 1.0) return E_F(eta);
     else if (eta < 1.0) return 1.0 - sqr(eta)*(1.0 - E_F(1.0/eta));
