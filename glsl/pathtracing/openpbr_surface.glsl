@@ -96,22 +96,26 @@ void openpbr_lobe_weights(in vec3 pW, in Basis basis, in vec3 winputL, inout uin
     if (coated)
     {
         // --- OpenPBR PR #253 (https://github.com/AcademySoftwareFoundation/OpenPBR/pull/253) ---
-        float Kr = 1.0 - (1.0 - average_dielectric_fresnel(coat_ior))/sqr(coat_ior);
+        float EF = DielectricFresnelAvg(coat_ior);
+        float Kr = 1.0 - (1.0 - EF)/sqr(coat_ior);
         float Ks = FresnelDielectricReflectance(abs(winputL.z), coat_ior);
-        float Fr = FresnelDielectricReflectanceModulated(0.0, eta_s());
-        float rd = mix(1.0, specular_roughness, Fr); // estimate of roughness of dielectric base
-        float rm = specular_roughness;               // estimate of roughness of metallic base
-        float rb = mix(rd, rm, M);  // thus estimated roughness of entire base
-        float K = mix(Ks, Kr, rb);  // thus estimated internal diffuse reflection coeff.
-        vec3 E_dielectric_base = mix(mix(albedos.m[ID_DIFF_BRDF], albedos.m[ID_SSSC_BTDF], S),
-                                        albedos.m[ID_SPEC_BTDF], T);     // dielectric base albedo
-        vec3 E_base = mix(E_dielectric_base, albedos.m[ID_META_BRDF], M); // entire base albedo
-        vec3 Delta = (1.0 - K) / (vec3(1.0) - E_base * K * coat_color); // full darkening factor
-        // PR #253 (https://github.com/AcademySoftwareFoundation/OpenPBR/pull/253):
-        // luminance-preserving interpolation to avoid chromaticity shift with colored coats
-        float lum_Delta = max(luminance_srgb(Delta), DENOM_TOLERANCE);
-        vec3 base_darkening = coat_color * Delta * mix(1.0 / lum_Delta, 1.0, coat_darkening);
-        w_base_substrate = w_coated_base * mix(vec3(1.0), base_darkening * (vec3(1.0) - albedos.m[ID_COAT_BRDF]), C);
+        float eta_s_val = eta_s();
+        float F0 = FresnelDielectricReflectance(1.0, eta_s_val); // Fresnel at normal incidence
+        float Fs = clamp(specular_weight * F0, 0.0, 1.0);        // modulated dielectric Fresnel
+        float rd = mix(1.0, specular_roughness, Fs);              // estimate of roughness of dielectric base
+        float rb = mix(rd, specular_roughness, M);                // roughness of entire base
+        float K = mix(Ks, Kr, rb);                                // internal diffuse reflection coeff.
+        vec3 base_col = base_weight * base_color;
+        vec3 E_dielec = mix(mix(base_col, subsurface_color, S), vec3(1.0 - F0), T); // dielectric base albedo
+        vec3 E_metal  = clamp(base_col * specular_weight, 0.0, 1.0);                // metallic base albedo
+        vec3 E_base   = mix(E_dielec, E_metal, M);                                  // entire base albedo
+        vec3 Delta = max(1.0 - K, 0.0) / (vec3(1.0) - E_base * K * coat_color); // darkening factor (Eqn. albedo_scaling_darkening2)
+        vec3 base_darkening = mix(vec3(1.0), Delta, coat_darkening);            // coat_darkening modulation (Eqn. modulated_darkening_factor)
+        // Coat absorption tint: coat_color = T²_coat, and absorb_tint = pow(coat_color, 0.5*(1/mu_i + 1/mu_o)).
+        // At normal incidence this reduces to coat_color. Since we only have winputL here (output not yet sampled),
+        // we use the normal-incidence approximation (consistent with the reference coat_darkening.cpp).
+        vec3 absorb_tint = coat_color;
+        w_base_substrate = w_coated_base * mix(vec3(1.0), base_darkening * absorb_tint * (vec3(1.0) - albedos.m[ID_COAT_BRDF]), C);
     }
     else
 #endif // COAT_ENABLED
