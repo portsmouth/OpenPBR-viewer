@@ -1118,11 +1118,8 @@ void openpbr_lobe_weights(in vec3 V, const in OpenPBRMaterial pbr,
         float K = mix(Ks, Kr, rb);  // thus estimated internal diffuse reflection coeff.
         vec3 E_dielectric_base = mix(mix(diff_albedo, sss_albedo, S), trans_albedo, T); // dielectric base albedo
         vec3 E_base = mix(E_dielectric_base, meta_albedo, M);                           // entire base albedo
-        vec3 Delta = (1.0 - K) / vec3(1.0 - E_base*K);              // full darkening factor
-        // PR #253 (https://github.com/AcademySoftwareFoundation/OpenPBR/pull/253):
-        // luminance-preserving interpolation to avoid chromaticity shift
-        float lum_Delta = max(0.2126 * Delta.r + 0.7152 * Delta.g + 0.0722 * Delta.b, DENOM_TOLERANCE);
-        vec3 base_darkening = Delta * mix(1.0 / lum_Delta, 1.0, coat_darkening);
+        vec3 Delta = max(1.0 - K, 0.0) / (vec3(1.0) - E_base * K * pbr.coat_color); // darkening factor
+        vec3 base_darkening = mix(vec3(1.0), Delta, pbr.coat_darkening); // coat_darkening modulation
         w_base_substrate = w_coated_base * mix(vec3(1.0), base_darkening * pbr.coat_color * (vec3(1.0) - coat_albedo), C);
     }
     else
