@@ -256,12 +256,25 @@ function coat_enabled()
 
 function volume_enabled()
 {
-    return true;
+    if (params.geometry_thin_walled)
+        return false;
+    if (params.base_metalness == 1.0)
+        return false;
+    if (params.transmission_weight > 0.0 &&
+        params.transmission_depth > 0.0)
+        return true;
+    if (params.subsurface_weight > 0.0)
+        return true;
+    return false;
 }
 
 function transmission_enabled()
 {
-    return true;
+    if (params.transmission_weight > 0.0)
+        return true;
+    if (params.subsurface_weight > 0.0)
+        return true;
+    return false;
 }
 
 function thin_film_enabled()
